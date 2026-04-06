@@ -1,0 +1,614 @@
+{
+  "info": {
+    "name": "NairaSage Backend API",
+    "description": "Django REST API for NairaSage.\n\n**Agents:** All 11 specialists + coordinator are implemented. Direct HTTP routes exist only for: accountant, investment_advisor, tax_advisor, behavioral_coach, life_planner, educator. Others (economist, opportunity_scout, debt_manager, savings_optimizer, risk_assessor) are invoked via **Agent > Coordinator chat** routing.\n\n**Coordinator streaming:** `POST /api/agent/chat/stream/` returns **SSE** (`text/event-stream`): `meta`, `delta` (token chunks), optional disclaimer, then `done` with `outcome_id`. Postman buffers the full body; browsers should use `fetch` + `ReadableStream` (not `EventSource`, which is GET-only).\n\n**Auth:** Run **Auth > Login (JWT)** first; it saves `access_token` and `refresh_token` to the active environment.\n\n**JWT:** Use `email` + `password` for login (custom user `USERNAME_FIELD`).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://127.0.0.1:8000" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Liveness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/health/live/"
+          }
+        },
+        {
+          "name": "Readiness (DB + Redis cache)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/health/ready/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{test_email}}\",\n  \"username\": \"{{test_username}}\",\n  \"password\": \"{{test_password}}\",\n  \"phone\": \"\"\n}"
+            },
+            "url": "{{base_url}}/api/auth/register/"
+          }
+        },
+        {
+          "name": "Login (JWT) — saves tokens to env",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var j = pm.response.json();",
+                  "    pm.environment.set('access_token', j.access);",
+                  "    pm.environment.set('refresh_token', j.refresh);",
+                  "    console.log('Tokens saved to environment');",
+                  "} else {",
+                  "    console.log('Login failed', pm.response.code, pm.response.text());",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{test_email}}\",\n  \"password\": \"{{test_password}}\"\n}"
+            },
+            "url": "{{base_url}}/api/auth/token/"
+          }
+        },
+        {
+          "name": "Refresh token",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh\": \"{{refresh_token}}\"\n}"
+            },
+            "url": "{{base_url}}/api/auth/token/refresh/"
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/auth/me/"
+          }
+        },
+        {
+          "name": "Patch Me",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+            },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"08000000000\"\n}"
+            },
+            "url": "{{base_url}}/api/auth/me/"
+          }
+        },
+        {
+          "name": "User goals — list",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/auth/goals/"
+          }
+        },
+        {
+          "name": "User goals — create",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Emergency fund\",\n  \"goal_type\": \"emergency\",\n  \"target_amount\": \"500000.00\",\n  \"current_amount\": \"0.00\",\n  \"status\": \"active\"\n}"
+            },
+            "url": "{{base_url}}/api/auth/goals/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Financial DNA",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "Get DNA",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/dna/"
+          }
+        },
+        {
+          "name": "Patch DNA",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"primary_goal\": \"Build wealth\",\n  \"risk_tolerance\": \"moderate\",\n  \"monthly_income\": \"500000.00\",\n  \"financial_literacy_score\": 50\n}"
+            },
+            "url": "{{base_url}}/api/dna/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Accounts",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "List bank accounts",
+          "request": { "method": "GET", "header": [], "url": "{{base_url}}/api/accounts/" }
+        },
+        {
+          "name": "Create bank account (Mono-linked id example)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mono_account_id\": \"mono_test_{{$guid}}\",\n  \"institution\": \"GTBank\",\n  \"account_name\": \"Main\",\n  \"account_number\": \"****1234\",\n  \"account_type\": \"savings\",\n  \"currency\": \"NGN\",\n  \"balance\": \"10000.00\"\n}"
+            },
+            "url": "{{base_url}}/api/accounts/"
+          }
+        },
+        {
+          "name": "Get bank account by id",
+          "request": { "method": "GET", "header": [], "url": "{{base_url}}/api/accounts/{{account_id}}/" }
+        }
+      ]
+    },
+    {
+      "name": "Transactions",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "List transactions",
+          "request": { "method": "GET", "header": [], "url": "{{base_url}}/api/transactions/" }
+        },
+        {
+          "name": "List transactions — filter category",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/transactions/?category=food_dining"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Portfolio",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "Get or update portfolio (singleton)",
+          "request": { "method": "GET", "header": [], "url": "{{base_url}}/api/portfolio/" }
+        },
+        {
+          "name": "Patch portfolio",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"My NGX Portfolio\"\n}" },
+            "url": "{{base_url}}/api/portfolio/"
+          }
+        },
+        {
+          "name": "List holdings",
+          "request": { "method": "GET", "header": [], "url": "{{base_url}}/api/portfolio/holdings/" }
+        },
+        {
+          "name": "Create holding",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"asset_type\": \"ngx_stock\",\n  \"symbol\": \"MTNN\",\n  \"name\": \"MTN Nigeria\",\n  \"units\": \"10\",\n  \"avg_cost\": \"250.0000\",\n  \"current_price\": \"260.0000\",\n  \"current_value\": \"2600.00\",\n  \"pnl\": \"100.00\",\n  \"pnl_pct\": 4.0\n}"
+            },
+            "url": "{{base_url}}/api/portfolio/holdings/"
+          }
+        },
+        {
+          "name": "Get holding by id",
+          "request": { "method": "GET", "header": [], "url": "{{base_url}}/api/portfolio/holdings/{{holding_id}}/" }
+        }
+      ]
+    },
+    {
+      "name": "Market",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "Quote by symbol",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/market/quote/?symbol=MTNN"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Savings goals",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "List",
+          "request": { "method": "GET", "header": [], "url": "{{base_url}}/api/goals/" }
+        },
+        {
+          "name": "Create",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"T-bill ladder\",\n  \"description\": \"\",\n  \"target_amount\": \"1000000.00\",\n  \"saved_amount\": \"0.00\",\n  \"is_active\": true\n}"
+            },
+            "url": "{{base_url}}/api/goals/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Opportunities",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "List",
+          "request": { "method": "GET", "header": [], "url": "{{base_url}}/api/opportunities/" }
+        },
+        {
+          "name": "Create",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"opp_type\": \"investment\",\n  \"title\": \"Test opportunity\",\n  \"description\": \"Manual test\",\n  \"match_score\": 70,\n  \"urgency_score\": 30\n}"
+            },
+            "url": "{{base_url}}/api/opportunities/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tax",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "Tax records — list",
+          "request": { "method": "GET", "header": [], "url": "{{base_url}}/api/tax/records/" }
+        },
+        {
+          "name": "Tax records — create",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tax_year\": 2026,\n  \"label\": \"PAYE estimate\",\n  \"amount_ngn\": \"120000.00\",\n  \"record_type\": \"paye\"\n}"
+            },
+            "url": "{{base_url}}/api/tax/records/"
+          }
+        },
+        {
+          "name": "Tax deadlines — list",
+          "request": { "method": "GET", "header": [], "url": "{{base_url}}/api/tax/deadlines/" }
+        },
+        {
+          "name": "Tax deadlines — create",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Self-assessment filing\",\n  \"due_date\": \"2026-03-31\",\n  \"is_done\": false\n}"
+            },
+            "url": "{{base_url}}/api/tax/deadlines/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Debt",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "List",
+          "request": { "method": "GET", "header": [], "url": "{{base_url}}/api/debt/" }
+        },
+        {
+          "name": "Create",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Car loan\",\n  \"debt_type\": \"auto_loan\",\n  \"lender\": \"Bank\",\n  \"original_amount\": \"2000000.00\",\n  \"outstanding\": \"1500000.00\",\n  \"interest_rate_pct\": \"18.00\",\n  \"monthly_payment\": \"85000.00\"\n}"
+            },
+            "url": "{{base_url}}/api/debt/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Billing",
+      "item": [
+        {
+          "name": "Subscription (auth)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/billing/subscription/"
+          }
+        },
+        {
+          "name": "Billing events — list",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/billing/events/"
+          }
+        },
+        {
+          "name": "Paystack webhook (no auth — uses signature)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Paystack-Signature", "value": "<compute HMAC SHA512 of body with PAYSTACK_SECRET_KEY>" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": "{{base_url}}/api/billing/webhooks/paystack/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "List",
+          "request": { "method": "GET", "header": [], "url": "{{base_url}}/api/notify/" }
+        },
+        {
+          "name": "Patch notification (mark read)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"is_read\": true\n}" },
+            "url": "{{base_url}}/api/notify/1/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Agent",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "Coordinator chat (routes to 1–3 specialists)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var j = pm.response.json();",
+                  "    if (j.outcome_id) pm.environment.set('outcome_id', String(j.outcome_id));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"How much did I spend on food last month? Keep it brief.\"\n}"
+            },
+            "url": "{{base_url}}/api/agent/chat/"
+          }
+        },
+        {
+          "name": "Coordinator chat stream (SSE)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var t = pm.response.text();",
+                  "    var idx = t.lastIndexOf('event: done');",
+                  "    if (idx >= 0) {",
+                  "        var sub = t.slice(idx);",
+                  "        var m = sub.match(/data:\\s*(\\{[^}]*\\})/);",
+                  "        if (m) { try { var j = JSON.parse(m[1]); if (j.outcome_id) pm.environment.set('outcome_id', String(j.outcome_id)); } catch (e) {} }",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "text/event-stream" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"One short tip on saving in Naira.\"\n}"
+            },
+            "url": "{{base_url}}/api/agent/chat/stream/"
+          }
+        },
+        {
+          "name": "Direct — accountant",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"message\": \"Summarize my spending in 2 sentences.\"\n}" },
+            "url": "{{base_url}}/api/agent/accountant/"
+          }
+        },
+        {
+          "name": "Direct — investment-advisor",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"message\": \"What is diversification for a Nigerian investor?\"\n}" },
+            "url": "{{base_url}}/api/agent/investment-advisor/"
+          }
+        },
+        {
+          "name": "Direct — tax-advisor",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"message\": \"What is PAYE in simple terms?\"\n}" },
+            "url": "{{base_url}}/api/agent/tax-advisor/"
+          }
+        },
+        {
+          "name": "Direct — behavioral-coach",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"message\": \"I keep impulse buying. One tip?\"\n}" },
+            "url": "{{base_url}}/api/agent/behavioral-coach/"
+          }
+        },
+        {
+          "name": "Direct — life-planner",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"message\": \"How should I think about an emergency fund in Lagos?\"\n}" },
+            "url": "{{base_url}}/api/agent/life-planner/"
+          }
+        },
+        {
+          "name": "Direct — educator",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"message\": \"Explain compound interest simply.\"\n}" },
+            "url": "{{base_url}}/api/agent/educator/"
+          }
+        },
+        {
+          "name": "Scenario (life planner)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"scenario\": \"What if inflation stays at 25% for two years?\"\n}" },
+            "url": "{{base_url}}/api/agent/scenario/"
+          }
+        },
+        {
+          "name": "Feedback on coordinator outcome",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"helpful\": true\n}" },
+            "url": "{{base_url}}/api/agent/feedback/{{outcome_id}}/"
+          }
+        },
+        {
+          "name": "Agent history",
+          "request": { "method": "GET", "header": [], "url": "{{base_url}}/api/agent/history/accountant/" }
+        },
+        {
+          "name": "Clear agent history",
+          "request": { "method": "DELETE", "header": [], "url": "{{base_url}}/api/agent/history/accountant/clear/" }
+        }
+      ]
+    }
+  ]
+}

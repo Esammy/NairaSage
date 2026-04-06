@@ -1,0 +1,2365 @@
+
+NairaSage
+Cursor AI Build Specification
+Complete Engineering Instructions for AI-Assisted Development
+Feed this document directly into Cursor AI as your project context
+
+Author
+David Samuel
+Stack
+Django 5 (Python) · Next.js 14 (TypeScript) · PostgreSQL · Redis
+AI Layer
+LangChain · Mistral (default) / OpenAI (env-switchable) · LangGraph
+Tasks
+Django-RQ · rq-scheduler
+Version
+1.0 · April 2026
+Purpose
+Cursor AI context document — complete build instructions
+
+
+HOW TO USE THIS DOCUMENT
+Open Cursor AI. Create a new chat. Attach this document or paste its contents as your project context. Then tell Cursor: "Build NairaSage according to this specification. Start with [section name]." Work through the sections in order. Each section is self-contained and gives Cursor everything it needs for that part of the build.
+
+
+1. Project Overview & Ground Rules for Cursor
+CURSOR INSTRUCTION
+You are building NairaSage — an AI-powered personal finance platform for Nigeria. Follow this specification exactly. Do not deviate from the stack, file paths, naming conventions, or patterns described. When in doubt, ask before assuming.
+
+
+1.1 What You Are Building
+NairaSage is a full-stack web application with three layers: (1) a Next.js 14 TypeScript frontend that users interact with, (2) a Django 5 REST API backend that handles all data and business logic, and (3) a multi-agent AI orchestration layer built on LangChain that powers 11 specialist financial AI agents coordinated by a master Coordinator agent.
+
+The system integrates with real Nigerian financial APIs: Mono for open banking, NGX for stock market data, Paystack for payments, and Fixer.io for FX rates. All AI runs through LangChain with Mistral as the default LLM, switchable to OpenAI via a single .env variable.
+
+1.2 Non-Negotiable Rules
+CURSOR: FOLLOW THESE EXACTLY
+1. Never hardcode API keys — always use environment variables via django-environ (backend) or process.env (frontend). 2. Every Django model must have created_at and updated_at fields. 3. Every API endpoint requires JWT authentication unless explicitly marked Public. 4. All monetary values stored as DecimalField(max_digits=14, decimal_places=2) in NGN. 5. Never store raw bank credentials — Mono handles OAuth. 6. All AI agent outputs must include a disclaimer: 'This is financial information, not licensed advice.' 7. Use Django ORM exclusively — no raw SQL. 8. TypeScript strict mode enabled — no 'any' types.
+
+
+1.3 Stack Summary
+Backend framework
+Django 5.0.4 + Django REST Framework 3.15.1
+Backend language
+Python 3.12
+Frontend framework
+Next.js 14.2 (App Router) + TypeScript 5.4
+Frontend language
+TypeScript — strict mode
+AI orchestration
+LangChain 0.2.6 + LangGraph 0.1.14
+LLM (default)
+Mistral via langchain-mistralai — model: mistral-large-latest
+LLM (alternative)
+OpenAI via langchain-openai — model: gpt-4o
+LLM switching
+Single env var: LLM_PROVIDER=mistral or openai
+Background tasks
+Django-RQ 2.10.2 + rq-scheduler 0.13.1
+Primary database
+PostgreSQL 16
+Cache / queue
+Redis 7
+Auth
+SimpleJWT — 15min access token, 7-day refresh
+Open banking
+Mono API (mono.co)
+Payments
+Paystack
+Stock data
+NGX Market Data API (iTick as MVP fallback)
+FX rates
+Fixer.io
+Frontend hosting
+Vercel
+Backend hosting
+Railway (3 services: web, rqworker, rqscheduler)
+Frontend state
+Zustand (client) + TanStack Query (server)
+Frontend UI
+Tailwind CSS + shadcn/ui
+
+
+2. Repository & File Structure
+CURSOR INSTRUCTION
+Create this exact monorepo structure. Do not rename folders or move files. The frontend/ and backend/ directories are siblings at the root. All paths in this document are relative to the repo root unless stated otherwise.
+
+
+2.1 Root Layout
+directory
+
+nairasage/                          ← repo root
+├── frontend/                       ← Next.js app
+├── backend/                        ← Django project
+├── docker-compose.yml              ← local dev: postgres + redis
+├── .env.example                    ← template for all env vars
+├── .gitignore
+└── README.md
+
+
+
+
+
+2.2 Backend Directory Tree
+directory
+
+backend/
+├── config/
+│   ├── settings/
+│   │   ├── __init__.py
+│   │   ├── base.py                 ← shared settings
+│   │   ├── development.py          ← DEBUG=True, verbose logging
+│   │   └── production.py           ← DEBUG=False, secure headers
+│   ├── urls.py                     ← root URL config
+│   ├── wsgi.py
+│   └── asgi.py
+├── apps/
+│   ├── users/                      ← auth, profiles, Financial DNA
+│   │   ├── models.py               ← User, FinancialDNA, UserGoal
+│   │   ├── serializers.py
+│   │   ├── views.py
+│   │   ├── urls.py
+│   │   └── tests.py
+│   ├── accounts/                   ← bank accounts (Mono)
+│   │   ├── models.py               ← BankAccount
+│   │   ├── serializers.py
+│   │   ├── views.py
+│   │   └── urls.py
+│   ├── transactions/               ← transaction data
+│   │   ├── models.py               ← Transaction
+│   │   ├── serializers.py
+│   │   ├── views.py
+│   │   └── urls.py
+│   ├── investments/                ← portfolio, holdings, market
+│   │   ├── models.py               ← Portfolio, PortfolioHolding
+│   │   ├── serializers.py
+│   │   ├── views.py
+│   │   └── urls.py
+│   ├── goals/                      ← savings goals
+│   │   ├── models.py               ← SavingsGoal
+│   │   ├── serializers.py
+│   │   ├── views.py
+│   │   └── urls.py
+│   ├── opportunities/              ← scout results
+│   │   ├── models.py               ← Opportunity
+│   │   ├── serializers.py
+│   │   ├── views.py
+│   │   └── urls.py
+│   ├── tax/                        ← tax tracking
+│   │   ├── models.py               ← TaxRecord, TaxDeadline
+│   │   ├── serializers.py
+│   │   ├── views.py
+│   │   └── urls.py
+│   ├── debt/                       ← debt inventory
+│   │   ├── models.py               ← Debt
+│   │   ├── serializers.py
+│   │   ├── views.py
+│   │   └── urls.py
+│   ├── notifications/              ← alerts and emails
+│   │   ├── models.py               ← Notification
+│   │   ├── serializers.py
+│   │   └── views.py
+│   └── billing/                    ← Paystack subscriptions
+│       ├── models.py               ← Subscription, BillingEvent
+│       ├── serializers.py
+│       └── views.py
+├── agents/                         ← ALL agent code lives here
+│   ├── __init__.py
+│   ├── base_agent.py               ← abstract BaseAgent class
+│   ├── coordinator.py              ← CoordinatorAgent
+│   ├── skills/                     ← reusable skill functions
+│   │   ├── __init__.py
+│   │   ├── financial_math.py       ← NPV, IRR, compound growth etc
+│   │   ├── nigeria_data.py         ← NGX data, CBN rates, T-bills
+│   │   ├── behavioral.py           ← pattern detection utilities
+│   │   └── tax_rules.py            ← FIRS rules, PAYE tables
+│   ├── accountant/
+│   │   ├── __init__.py
+│   │   ├── agent.py
+│   │   ├── skills.py               ← agent-specific skill fns
+│   │   └── prompts.py              ← all prompts for this agent
+│   ├── economist/
+│   │   ├── agent.py
+│   │   ├── skills.py
+│   │   └── prompts.py
+│   ├── investment_advisor/
+│   │   ├── agent.py
+│   │   ├── skills.py
+│   │   └── prompts.py
+│   ├── opportunity_scout/
+│   │   ├── agent.py
+│   │   ├── skills.py
+│   │   └── prompts.py
+│   ├── tax_advisor/
+│   │   ├── agent.py
+│   │   ├── skills.py
+│   │   └── prompts.py
+│   ├── behavioral_coach/
+│   │   ├── agent.py
+│   │   ├── skills.py
+│   │   └── prompts.py
+│   ├── debt_manager/
+│   │   ├── agent.py
+│   │   ├── skills.py
+│   │   └── prompts.py
+│   ├── savings_optimizer/
+│   │   ├── agent.py
+│   │   ├── skills.py
+│   │   └── prompts.py
+│   ├── risk_assessor/
+│   │   ├── agent.py
+│   │   ├── skills.py
+│   │   └── prompts.py
+│   ├── life_planner/
+│   │   ├── agent.py
+│   │   ├── skills.py
+│   │   └── prompts.py
+│   └── education/
+│       ├── agent.py
+│       ├── skills.py
+│       └── prompts.py
+├── core/
+│   ├── llm_factory.py              ← LLM provider switcher
+│   ├── financial_dna.py            ← DNA read/write helpers
+│   ├── permissions.py              ← custom DRF permissions
+│   └── utils.py                    ← shared utilities
+├── integrations/
+│   ├── mono/
+│   │   ├── client.py               ← MonoClient class
+│   │   └── webhooks.py             ← webhook signature verification
+│   ├── ngx/
+│   │   └── client.py               ← NGXClient (+ iTick fallback)
+│   ├── bamboo/
+│   │   └── client.py               ← BambooClient
+│   ├── paystack/
+│   │   ├── client.py               ← PaystackClient
+│   │   └── webhooks.py
+│   ├── fixer/
+│   │   └── client.py               ← FixerClient
+│   └── cbn/
+│       └── client.py               ← CBN data scraper/API
+├── tasks/
+│   ├── __init__.py
+│   ├── sync_tasks.py               ← bank sync, categorization
+│   ├── scout_tasks.py              ← opportunity scout cron
+│   ├── market_tasks.py             ← price refresh, FX update
+│   ├── alert_tasks.py              ← notification dispatch
+│   └── scheduler.py               ← rq-scheduler setup
+├── requirements.txt
+├── manage.py
+└── Procfile                        ← Railway process definitions
+
+
+
+
+
+2.3 Frontend Directory Tree
+directory
+
+frontend/
+├── app/
+│   ├── layout.tsx                  ← root layout, fonts, providers
+│   ├── globals.css
+│   ├── (auth)/                     ← route group: no dashboard shell
+│   │   ├── login/page.tsx
+│   │   ├── register/page.tsx
+│   │   └── onboard/page.tsx        ← Financial DNA setup wizard
+│   ├── (marketing)/                ← public website
+│   │   ├── page.tsx                ← landing page
+│   │   ├── pricing/page.tsx
+│   │   └── about/page.tsx
+│   └── (dashboard)/               ← protected: all require JWT
+│       ├── layout.tsx              ← sidebar + topbar shell
+│       ├── page.tsx                ← main dashboard (net worth)
+│       ├── accounts/page.tsx       ← linked banks
+│       ├── transactions/page.tsx   ← transaction feed + filters
+│       ├── investments/page.tsx    ← portfolio view
+│       ├── goals/page.tsx          ← savings goals
+│       ├── opportunities/page.tsx  ← scout results
+│       ├── tax/page.tsx
+│       ├── debt/page.tsx
+│       ├── scenarios/page.tsx      ← life simulation
+│       ├── coach/page.tsx          ← behavioral coach chat
+│       ├── learn/page.tsx          ← education modules
+│       └── settings/page.tsx
+├── components/
+│   ├── ui/                         ← shadcn/ui components (auto-generated)
+│   ├── dashboard/
+│   │   ├── NetWorthCard.tsx
+│   │   ├── SpendingChart.tsx
+│   │   ├── GoalProgressCard.tsx
+│   │   └── OpportunityAlert.tsx
+│   ├── agent/
+│   │   ├── AgentChat.tsx           ← reusable chat component
+│   │   ├── AgentResponse.tsx       ← renders agent output
+│   │   └── AgentSelector.tsx       ← pick which agent to talk to
+│   ├── accounts/
+│   │   ├── LinkAccountButton.tsx   ← triggers Mono Connect widget
+│   │   └── AccountCard.tsx
+│   └── forms/
+│       ├── OnboardingWizard.tsx
+│       └── GoalForm.tsx
+├── lib/
+│   ├── api.ts                      ← axios client + interceptors
+│   ├── auth.ts                     ← NextAuth config
+│   ├── store/
+│   │   ├── userStore.ts            ← Zustand: user + DNA
+│   │   └── uiStore.ts              ← Zustand: sidebar, modals
+│   └── hooks/
+│       ├── useTransactions.ts      ← TanStack Query hooks
+│       ├── usePortfolio.ts
+│       └── useAgent.ts             ← agent chat hook
+├── types/
+│   └── index.ts                    ← all TypeScript interfaces
+├── middleware.ts                   ← Next.js route protection
+├── next.config.ts
+├── tailwind.config.ts
+├── tsconfig.json                   ← strict: true
+└── package.json
+
+
+
+
+
+3. Environment Variables (Complete Reference)
+CURSOR INSTRUCTION
+Create .env.example at the repo root and backend/.env for Django. Create frontend/.env.local for Next.js. Never commit real values. Add .env, .env.local to .gitignore.
+
+
+3.1 Backend .env (Django)
+backend/.env
+
+# ── Django core ──────────────────────────────────────────
+DEBUG=True
+SECRET_KEY=replace-with-50-char-random-string
+ALLOWED_HOSTS=localhost,127.0.0.1
+DJANGO_SETTINGS_MODULE=config.settings.development
+
+
+# ── Database ─────────────────────────────────────────────
+DATABASE_URL=postgres://nairasage:password@localhost:5432/nairasage
+
+
+# ── Redis ────────────────────────────────────────────────
+REDIS_URL=redis://localhost:6379/0
+
+
+# ── LLM provider (mistral | openai) ─────────────────────
+LLM_PROVIDER=mistral
+MISTRAL_API_KEY=
+MISTRAL_MODEL=mistral-large-latest
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o
+LLM_TEMPERATURE=0.2
+LLM_MAX_TOKENS=4096
+
+
+# ── Mono (open banking) ──────────────────────────────────
+MONO_SECRET_KEY=
+MONO_PUBLIC_KEY=
+MONO_WEBHOOK_SECRET=
+
+
+# ── NGX market data ──────────────────────────────────────
+NGX_API_KEY=
+NGX_API_URL=https://marketdataapiv3.ngxgroup.com/api
+ITICK_API_KEY=                    # MVP fallback
+
+
+# ── Paystack ─────────────────────────────────────────────
+PAYSTACK_SECRET_KEY=
+PAYSTACK_PUBLIC_KEY=
+
+
+# ── Fixer.io (FX rates) ──────────────────────────────────
+FIXER_API_KEY=
+
+
+# ── Bamboo (trade execution — B2B partnership) ───────────
+BAMBOO_API_KEY=
+BAMBOO_API_URL=
+
+
+# ── Email (Resend) ────────────────────────────────────────
+RESEND_API_KEY=
+DEFAULT_FROM_EMAIL=hello@nairasage.com
+
+
+# ── Storage (AWS S3 / Cloudflare R2) ─────────────────────
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+AWS_STORAGE_BUCKET_NAME=nairasage-media
+AWS_S3_REGION_NAME=af-south-1
+
+
+# ── Monitoring ───────────────────────────────────────────
+SENTRY_DSN=
+
+
+
+
+
+3.2 Frontend .env.local (Next.js)
+frontend/.env.local
+
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_MONO_PUBLIC_KEY=
+NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY=
+NEXTAUTH_SECRET=replace-with-random-string
+NEXTAUTH_URL=http://localhost:3000
+
+
+
+
+
+4. Django Backend — Complete Setup
+4.1 requirements.txt
+CURSOR INSTRUCTION
+Create backend/requirements.txt with exactly these packages and versions. Run pip install -r requirements.txt inside a Python 3.12 virtual environment.
+
+
+requirements.txt
+
+# Framework
+django==5.0.4
+djangorestframework==3.15.1
+djangorestframework-simplejwt==5.3.1
+django-cors-headers==4.3.1
+django-filter==24.1
+django-environ==0.11.2
+
+
+# Database
+psycopg2-binary==2.9.9
+redis==5.0.4
+django-redis==5.4.0
+
+
+# Task queue
+django-rq==2.10.2
+rq==1.16.2
+rq-scheduler==0.13.1
+
+
+# AI / LangChain
+langchain==0.2.6
+langchain-core==0.2.10
+langchain-community==0.2.6
+langchain-mistralai==0.1.7
+langchain-openai==0.1.14
+langgraph==0.1.14
+
+
+# HTTP clients
+httpx==0.27.0
+requests==2.32.3
+
+
+# Data / math
+pandas==2.2.2
+numpy==1.26.4
+pydantic==2.7.1
+
+
+# Utilities
+python-dateutil==2.9.0
+python-slugify==8.0.4
+Pillow==10.3.0
+
+
+# Security
+cryptography==42.0.7
+django-axes==6.4.0
+
+
+# Server
+gunicorn==22.0.0
+whitenoise==6.7.0
+
+
+
+
+
+4.2 config/settings/base.py
+CURSOR INSTRUCTION
+Create this file exactly. Do not add extra apps or middleware. The ordering of MIDDLEWARE matters — corsheaders must be first.
+
+
+config/settings/base.py
+
+import environ
+from pathlib import Path
+
+
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+env = environ.Env()
+environ.Env.read_env(BASE_DIR / '.env')
+
+
+SECRET_KEY = env('SECRET_KEY')
+DEBUG = env.bool('DEBUG', default=False)
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost'])
+
+
+INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'django.contrib.sessions',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
+    # Third-party
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'corsheaders',
+    'django_filters',
+    'django_rq',
+    'axes',
+    # NairaSage apps
+    'apps.users',
+    'apps.accounts',
+    'apps.transactions',
+    'apps.investments',
+    'apps.goals',
+    'apps.opportunities',
+    'apps.tax',
+    'apps.debt',
+    'apps.notifications',
+    'apps.billing',
+]
+
+
+MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',   # MUST be first
+    'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
+    'axes.middleware.AxesMiddleware',
+]
+
+
+ROOT_URLCONF = 'config.urls'
+AUTH_USER_MODEL = 'users.User'
+
+
+DATABASES = {
+    'default': env.db('DATABASE_URL')
+}
+
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': env('REDIS_URL'),
+        'OPTIONS': {'CLIENT_CLASS': 'django_redis.client.DefaultClient'},
+        'TIMEOUT': 300,
+    }
+}
+
+
+RQ_QUEUES = {
+    'high':    {'USE_REDIS_CACHE': 'default'},
+    'default': {'USE_REDIS_CACHE': 'default'},
+    'low':     {'USE_REDIS_CACHE': 'default'},
+}
+
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_PAGINATION_CLASS':
+        'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 50,
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
+    ],
+}
+
+
+from datetime import timedelta
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME':  timedelta(minutes=15),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS':  True,
+    'BLACKLIST_AFTER_ROTATION': True,
+}
+
+
+CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS',
+    default=['http://localhost:3000'])
+
+
+LANGUAGE_CODE = 'en-us'
+TIME_ZONE = 'Africa/Lagos'
+USE_I18N = True
+USE_TZ = True
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+
+
+
+4.3 LLM Factory (core/llm_factory.py)
+CURSOR INSTRUCTION
+This is the single most important file in the AI layer. Every agent imports get_llm() from here. Never import LangChain LLM classes directly in agent files.
+
+
+core/llm_factory.py
+
+import os
+from langchain_mistralai import ChatMistralAI
+from langchain_openai import ChatOpenAI
+from langchain_core.language_models import BaseChatModel
+
+
+def get_llm(temperature: float = None,
+            max_tokens: int = None) -> BaseChatModel:
+    """
+    Return the configured LLM based on LLM_PROVIDER env var.
+    Supports: mistral | openai
+    Switch providers by changing LLM_PROVIDER in .env — no code changes.
+    """
+    provider = os.getenv('LLM_PROVIDER', 'mistral').lower()
+    temp     = temperature if temperature is not None \
+               else float(os.getenv('LLM_TEMPERATURE', '0.2'))
+    tokens   = max_tokens or int(os.getenv('LLM_MAX_TOKENS', '4096'))
+
+
+    if provider == 'openai':
+        return ChatOpenAI(
+            model=os.getenv('OPENAI_MODEL', 'gpt-4o'),
+            temperature=temp,
+            max_tokens=tokens,
+            openai_api_key=os.getenv('OPENAI_API_KEY'),
+        )
+
+
+    # Default: Mistral
+    return ChatMistralAI(
+        model=os.getenv('MISTRAL_MODEL', 'mistral-large-latest'),
+        temperature=temp,
+        mistral_api_key=os.getenv('MISTRAL_API_KEY'),
+    )
+
+
+def get_routing_llm() -> BaseChatModel:
+    """LLM for the coordinator routing step — always temperature=0."""
+    return get_llm(temperature=0.0)
+
+
+def get_creative_llm() -> BaseChatModel:
+    """LLM for education/coaching — slightly more creative."""
+    return get_llm(temperature=0.5)
+
+
+
+
+
+5. Django Data Models
+CURSOR INSTRUCTION
+Build models in this exact order. Each app's models.py must contain ONLY the models listed for that app. Run python manage.py makemigrations and python manage.py migrate after creating all models.
+
+
+5.1 apps/users/models.py
+apps/users/models.py
+
+from django.contrib.auth.models import AbstractUser
+from django.db import models
+
+
+class User(AbstractUser):
+    email        = models.EmailField(unique=True)
+    phone        = models.CharField(max_length=20, blank=True)
+    bvn_verified = models.BooleanField(default=False)
+    tier         = models.CharField(
+        max_length=10,
+        choices=[('free','Free'),('pro','Pro'),('elite','Elite')],
+        default='free'
+    )
+    onboarded    = models.BooleanField(default=False)
+    created_at   = models.DateTimeField(auto_now_add=True)
+    updated_at   = models.DateTimeField(auto_now=True)
+
+
+    USERNAME_FIELD  = 'email'
+    REQUIRED_FIELDS = ['username']
+
+
+    def __str__(self):
+        return self.email
+
+
+
+
+class FinancialDNA(models.Model):
+    """
+    Persistent AI memory profile — updated continuously by agents.
+    This is NairaSage's core competitive moat.
+    """
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name='financial_dna'
+    )
+    # Life profile
+    primary_goal       = models.CharField(max_length=100, blank=True)
+    life_stage         = models.CharField(max_length=50, blank=True)
+    monthly_income     = models.DecimalField(
+        max_digits=14, decimal_places=2, null=True, blank=True
+    )
+    income_stability   = models.CharField(max_length=20, blank=True)
+    occupation         = models.CharField(max_length=100, blank=True)
+
+
+    # Risk profile
+    risk_tolerance     = models.CharField(max_length=20, blank=True)
+    investment_horizon = models.IntegerField(null=True, blank=True)
+
+
+    # Behavioral signals (0.0 to 1.0, updated by Behavioral Coach)
+    impulse_spend_score    = models.FloatField(default=0.0)
+    fomo_sensitivity_score = models.FloatField(default=0.0)
+    savings_discipline     = models.FloatField(default=0.0)
+    loss_aversion_score    = models.FloatField(default=0.0)
+    stress_spend_triggers  = models.JSONField(default=list)
+
+
+    # Knowledge
+    financial_literacy_score = models.IntegerField(default=0)
+    completed_modules        = models.JSONField(default=list)
+
+
+    # Agent memory (LangChain conversation summaries per agent)
+    agent_memory     = models.JSONField(default=dict)
+    # e.g. {'accountant': {'summary': '...', 'updated': '...'}, ...}
+
+
+    # Self-learning: coordinator routing weights
+    routing_weights  = models.JSONField(default=dict)
+    # e.g. {'portfolio_query': {'investment_advisor': 0.9, 'risk_assessor': 0.7}}
+
+
+    preferred_language = models.CharField(max_length=20, default='en')
+    notification_prefs = models.JSONField(default=dict)
+
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+
+
+class UserGoal(models.Model):
+    GOAL_TYPES = [
+        ('house','Buy a House'), ('retirement','Retirement'),
+        ('emergency','Emergency Fund'), ('education','Education'),
+        ('business','Start Business'), ('travel','Travel'),
+        ('custom','Custom'),
+    ]
+    user            = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='goals'
+    )
+    title           = models.CharField(max_length=200)
+    goal_type       = models.CharField(max_length=20, choices=GOAL_TYPES)
+    target_amount   = models.DecimalField(max_digits=14, decimal_places=2)
+    current_amount  = models.DecimalField(
+        max_digits=14, decimal_places=2, default=0
+    )
+    target_date     = models.DateField(null=True, blank=True)
+    monthly_contrib = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True
+    )
+    auto_contribute = models.BooleanField(default=False)
+    status          = models.CharField(max_length=20, default='active')
+    created_at      = models.DateTimeField(auto_now_add=True)
+    updated_at      = models.DateTimeField(auto_now=True)
+
+
+    def progress_pct(self) -> float:
+        if self.target_amount == 0: return 0.0
+        return float(self.current_amount / self.target_amount * 100)
+
+
+
+
+
+5.2 apps/accounts/models.py
+apps/accounts/models.py
+
+from django.db import models
+from apps.users.models import User
+
+
+class BankAccount(models.Model):
+    user            = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='bank_accounts'
+    )
+    mono_account_id = models.CharField(max_length=100, unique=True)
+    institution     = models.CharField(max_length=100)
+    account_name    = models.CharField(max_length=200)
+    account_number  = models.CharField(max_length=20)  # stored masked
+    account_type    = models.CharField(max_length=50)
+    currency        = models.CharField(max_length=5, default='NGN')
+    balance         = models.DecimalField(
+        max_digits=16, decimal_places=2, default=0
+    )
+    balance_updated = models.DateTimeField(null=True, blank=True)
+    is_active       = models.BooleanField(default=True)
+    linked_at       = models.DateTimeField(auto_now_add=True)
+    updated_at      = models.DateTimeField(auto_now=True)
+
+
+    def __str__(self):
+        return f'{self.institution} {self.account_number}'
+
+
+
+
+
+5.3 apps/transactions/models.py
+apps/transactions/models.py
+
+from django.db import models
+from apps.accounts.models import BankAccount
+
+
+class Transaction(models.Model):
+    TYPES = [('credit','Credit'), ('debit','Debit')]
+    CATEGORIES = [
+        ('food_dining','Food & Dining'),
+        ('transport','Transport'),
+        ('utilities','Utilities'),
+        ('entertainment','Entertainment'),
+        ('health','Healthcare'),
+        ('education','Education'),
+        ('investment','Investment'),
+        ('savings','Savings'),
+        ('income','Income'),
+        ('transfer','Transfer'),
+        ('subscription','Subscriptions'),
+        ('shopping','Shopping'),
+        ('rent','Rent / Housing'),
+        ('insurance','Insurance'),
+        ('loan_repayment','Loan Repayment'),
+        ('other','Other'),
+    ]
+
+
+    account       = models.ForeignKey(
+        BankAccount, on_delete=models.CASCADE,
+        related_name='transactions'
+    )
+    mono_id       = models.CharField(max_length=100, unique=True)
+    amount        = models.DecimalField(max_digits=14, decimal_places=2)
+    type          = models.CharField(max_length=10, choices=TYPES)
+    description   = models.CharField(max_length=500)
+    category      = models.CharField(
+        max_length=30, choices=CATEGORIES, blank=True
+    )
+    ai_category   = models.CharField(max_length=30, blank=True)
+    ai_confidence = models.FloatField(default=0.0)
+    merchant      = models.CharField(max_length=200, blank=True)
+    date          = models.DateField()
+    balance       = models.DecimalField(max_digits=14, decimal_places=2)
+    is_flagged    = models.BooleanField(default=False)
+    flag_reason   = models.CharField(max_length=200, blank=True)
+    flag_type     = models.CharField(max_length=50, blank=True)
+    # flag_type: impulse | fomo | anomaly | fraud_suspected
+    created_at    = models.DateTimeField(auto_now_add=True)
+    updated_at    = models.DateTimeField(auto_now=True)
+
+
+    class Meta:
+        ordering = ['-date', '-created_at']
+        indexes  = [
+            models.Index(fields=['account', 'date']),
+            models.Index(fields=['account', 'category']),
+        ]
+
+
+
+
+
+5.4 apps/investments/models.py
+apps/investments/models.py
+
+from django.db import models
+from apps.users.models import User
+
+
+class Portfolio(models.Model):
+    user         = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name='portfolio'
+    )
+    name         = models.CharField(max_length=100, default='My Portfolio')
+    total_value  = models.DecimalField(
+        max_digits=16, decimal_places=2, default=0
+    )
+    currency     = models.CharField(max_length=5, default='NGN')
+    risk_score   = models.FloatField(null=True, blank=True)  # 0-10
+    updated_at   = models.DateTimeField(auto_now=True)
+
+
+
+
+class PortfolioHolding(models.Model):
+    ASSET_TYPES = [
+        ('ngx_stock','NGX Stock'),
+        ('us_stock','US Stock'),
+        ('mutual_fund','Mutual Fund'),
+        ('tbill','Treasury Bill'),
+        ('bond','FGN Bond'),
+        ('etf','ETF'),
+        ('crypto','Cryptocurrency'),
+        ('real_estate','Real Estate'),
+        ('cash','Cash / MMF'),
+    ]
+    portfolio     = models.ForeignKey(
+        Portfolio, on_delete=models.CASCADE, related_name='holdings'
+    )
+    asset_type    = models.CharField(max_length=30, choices=ASSET_TYPES)
+    symbol        = models.CharField(max_length=20, blank=True)
+    name          = models.CharField(max_length=200)
+    units         = models.DecimalField(
+        max_digits=16, decimal_places=6, default=0
+    )
+    avg_cost      = models.DecimalField(
+        max_digits=14, decimal_places=4, default=0
+    )
+    current_price = models.DecimalField(
+        max_digits=14, decimal_places=4, default=0
+    )
+    current_value = models.DecimalField(
+        max_digits=14, decimal_places=2, default=0
+    )
+    pnl           = models.DecimalField(
+        max_digits=14, decimal_places=2, default=0
+    )
+    pnl_pct       = models.FloatField(default=0.0)
+    notes         = models.TextField(blank=True)
+    updated_at    = models.DateTimeField(auto_now=True)
+    created_at    = models.DateTimeField(auto_now_add=True)
+
+
+
+
+
+5.5 apps/opportunities/models.py
+apps/opportunities/models.py
+
+from django.db import models
+from apps.users.models import User
+
+
+class Opportunity(models.Model):
+    TYPES = [
+        ('grant','Grant / Program'),
+        ('investment','Investment Product'),
+        ('ipo','IPO / New Listing'),
+        ('side_income','Side Income'),
+        ('real_estate','Real Estate Deal'),
+        ('bank_product','Bank Rate / Product'),
+        ('tbill','T-Bill / Bond Rate'),
+        ('job','Contract / Job'),
+    ]
+    user            = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='opportunities'
+    )
+    opp_type        = models.CharField(max_length=30, choices=TYPES)
+    title           = models.CharField(max_length=300)
+    description     = models.TextField()
+    source_url      = models.URLField(blank=True)
+    match_score     = models.FloatField()          # 0-100
+    urgency_score   = models.FloatField(default=0) # 0-100
+    deadline        = models.DateField(null=True, blank=True)
+    estimated_value = models.DecimalField(
+        max_digits=14, decimal_places=2, null=True, blank=True
+    )
+    is_actioned     = models.BooleanField(default=False)
+    is_dismissed    = models.BooleanField(default=False)
+    scout_run_at    = models.DateTimeField(auto_now_add=True)
+
+
+    class Meta:
+        ordering = ['-urgency_score', '-match_score']
+
+
+
+
+
+5.6 apps/debt/models.py
+apps/debt/models.py
+
+from django.db import models
+from apps.users.models import User
+
+
+class Debt(models.Model):
+    DEBT_TYPES = [
+        ('personal_loan','Personal Loan'),
+        ('mortgage','Mortgage'),
+        ('credit_card','Credit Card'),
+        ('auto_loan','Auto Loan'),
+        ('student_loan','Student Loan'),
+        ('bnpl','BNPL / Informal'),
+        ('other','Other'),
+    ]
+    user              = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='debts'
+    )
+    name              = models.CharField(max_length=200)
+    debt_type         = models.CharField(max_length=30, choices=DEBT_TYPES)
+    lender            = models.CharField(max_length=100, blank=True)
+    original_amount   = models.DecimalField(max_digits=14, decimal_places=2)
+    outstanding       = models.DecimalField(max_digits=14, decimal_places=2)
+    interest_rate_pct = models.DecimalField(
+        max_digits=6, decimal_places=2
+    )  # annual percentage
+    monthly_payment   = models.DecimalField(max_digits=12, decimal_places=2)
+    due_date          = models.DateField(null=True, blank=True)
+    is_productive     = models.BooleanField(default=False)
+    # productive = leveraged for appreciating asset
+    notes             = models.TextField(blank=True)
+    created_at        = models.DateTimeField(auto_now_add=True)
+    updated_at        = models.DateTimeField(auto_now=True)
+
+
+
+
+
+5.7 Skill Outcome Models (Self-Learning)
+CURSOR INSTRUCTION
+Add these models to apps/users/models.py. They power the coordinator's self-learning routing system.
+
+
+apps/users/models.py (addition)
+
+# Add to apps/users/models.py
+
+
+class SkillOutcome(models.Model):
+    """
+    Records the result of every coordinator dispatch.
+    Used by the weekly self-learning job to improve routing weights.
+    """
+    user          = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='skill_outcomes'
+    )
+    intent_bucket = models.CharField(max_length=100)
+    # e.g. 'portfolio_query', 'tax_question', 'behavioral_flag'
+    agents_called = models.JSONField()  # ['investment_advisor','risk_assessor']
+    user_query    = models.TextField()
+    was_helpful   = models.BooleanField(null=True)  # null=not yet rated
+    response_time_ms = models.IntegerField(null=True)
+    created_at    = models.DateTimeField(auto_now_add=True)
+
+
+
+
+class SkillGapReport(models.Model):
+    """
+    Generated by coordinator when it cannot handle a query type.
+    David reviews these and decides which new skills to build.
+    """
+    STATUS = [
+        ('pending','Pending Review'),
+        ('approved','Approved — Building'),
+        ('shipped','Shipped'),
+        ('rejected','Rejected'),
+    ]
+    query_pattern = models.TextField()  # representative example query
+    frequency     = models.IntegerField(default=1)
+    proposed_spec = models.TextField()  # AI-generated skill spec for David
+    status        = models.CharField(
+        max_length=20, choices=STATUS, default='pending'
+    )
+    created_at    = models.DateTimeField(auto_now_add=True)
+    reviewed_at   = models.DateTimeField(null=True, blank=True)
+
+
+
+
+
+6. Agent Architecture — Complete Implementation
+6.1 agents/base_agent.py
+CURSOR INSTRUCTION
+Every specialist agent MUST inherit from BaseAgent. Never call the LLM directly in an agent — always use self.chat() or self.run(). Never import ChatMistralAI or ChatOpenAI directly in agent files.
+
+
+agents/base_agent.py
+
+from abc import ABC, abstractmethod
+from typing import Any, Dict, Optional
+import logging
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain.memory import ConversationSummaryBufferMemory
+from core.llm_factory import get_llm
+from apps.users.models import FinancialDNA
+
+
+logger = logging.getLogger(__name__)
+
+
+DISCLAIMER = (
+    '\n\n---\n'
+    'Note: This is financial information provided for educational purposes. '
+    'It is not licensed financial advice. Please consult a qualified financial '
+    'advisor before making investment or financial decisions.'
+)
+
+
+class BaseAgent(ABC):
+    agent_name: str = 'base'
+    system_prompt: str = ''
+    add_disclaimer: bool = True
+
+
+    def __init__(self, user_id: int):
+        self.user_id = user_id
+        self.llm     = get_llm()
+        try:
+            self.dna = FinancialDNA.objects.select_related('user').get(
+                user_id=user_id
+            )
+        except FinancialDNA.DoesNotExist:
+            # Create empty DNA if onboarding not complete
+            from apps.users.models import User
+            user = User.objects.get(id=user_id)
+            self.dna = FinancialDNA.objects.create(user=user)
+        self.memory = self._load_memory()
+
+
+    def _load_memory(self) -> ConversationSummaryBufferMemory:
+        mem = ConversationSummaryBufferMemory(
+            llm=self.llm,
+            max_token_limit=2000,
+            return_messages=True,
+        )
+        saved = self.dna.agent_memory.get(self.agent_name, {})
+        if saved.get('summary'):
+            mem.moving_summary_buffer = saved['summary']
+        return mem
+
+
+    def _save_memory(self):
+        self.dna.agent_memory[self.agent_name] = {
+            'summary': self.memory.moving_summary_buffer,
+            'updated': str(import_datetime()),
+        }
+        self.dna.save(update_fields=['agent_memory', 'updated_at'])
+
+
+    def _get_dna_context(self) -> str:
+        return (
+            f'USER PROFILE:\n'
+            f'- Monthly income: NGN {self.dna.monthly_income}\n'
+            f'- Risk tolerance: {self.dna.risk_tolerance}\n'
+            f'- Primary goal: {self.dna.primary_goal}\n'
+            f'- Life stage: {self.dna.life_stage}\n'
+            f'- Financial literacy: {self.dna.financial_literacy_score}/100\n'
+            f'- Occupation: {self.dna.occupation}\n'
+        )
+
+
+    def chat(self, user_input: str) -> str:
+        """Standard chat with persistent memory. Returns response string."""
+        history  = self.memory.load_memory_variables({}).get('history', [])
+        messages = [
+            SystemMessage(content=(
+                self.system_prompt + '\n\n' + self._get_dna_context()
+            )),
+            *history,
+            HumanMessage(content=user_input),
+        ]
+        try:
+            response = self.llm.invoke(messages)
+            content  = response.content
+            if self.add_disclaimer:
+                content += DISCLAIMER
+            self.memory.save_context(
+                {'input': user_input}, {'output': content}
+            )
+            self._save_memory()
+            return content
+        except Exception as e:
+            logger.error(f'{self.agent_name} error: {e}')
+            return f'I encountered an error processing your request. Please try again.'
+
+
+    @abstractmethod
+    def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Execute the agent's primary task.
+        Must return: {'summary': str, 'data': dict, 'confidence': float}
+        """
+        pass
+
+
+def import_datetime():
+    from datetime import datetime
+    return datetime.utcnow().isoformat()
+
+
+
+
+
+6.2 agents/coordinator.py — Full Implementation
+agents/coordinator.py
+
+import json
+import logging
+from typing import List, Dict, Any
+from langchain_core.messages import SystemMessage, HumanMessage
+from core.llm_factory import get_routing_llm
+from apps.users.models import FinancialDNA, SkillOutcome, SkillGapReport
+import time
+
+
+logger = logging.getLogger(__name__)
+
+
+# ── Agent registry ────────────────────────────────────────
+# Import lazily inside dispatch() to avoid circular imports
+AGENT_REGISTRY = {
+    'accountant':         'agents.accountant.agent.AccountantAgent',
+    'economist':          'agents.economist.agent.EconomistAgent',
+    'investment_advisor': 'agents.investment_advisor.agent.InvestmentAdvisorAgent',
+    'opportunity_scout':  'agents.opportunity_scout.agent.OpportunityScoutAgent',
+    'tax_advisor':        'agents.tax_advisor.agent.TaxAdvisorAgent',
+    'behavioral_coach':   'agents.behavioral_coach.agent.BehavioralCoachAgent',
+    'debt_manager':       'agents.debt_manager.agent.DebtManagerAgent',
+    'savings_optimizer':  'agents.savings_optimizer.agent.SavingsOptimizerAgent',
+    'risk_assessor':      'agents.risk_assessor.agent.RiskAssessorAgent',
+    'life_planner':       'agents.life_planner.agent.LifePlannerAgent',
+    'education':          'agents.education.agent.EducationAgent',
+}
+
+
+ROUTING_SYSTEM_PROMPT = '''
+You are the NairaSage coordinator. Analyze the user's message and return
+ONLY a JSON object with two fields:
+  agents: array of agent names to call (1-3 agents max)
+  intent_bucket: a short snake_case label for this query type
+
+
+Available agents:
+  accountant         - spending, transactions, budgeting, cash flow
+  economist          - inflation, macro, Naira, CBN policy, FX
+  investment_advisor - stocks, portfolio, NGX, mutual funds, T-bills
+  opportunity_scout  - grants, deals, side income, IPOs
+  tax_advisor        - PAYE, self-assessment, FIRS, deductions
+  behavioral_coach   - impulse spending, habits, emotional decisions
+  debt_manager       - loans, repayment, interest rates
+  savings_optimizer  - goals, high-yield options, auto-save
+  risk_assessor      - portfolio risk, diversification, stress testing
+  life_planner       - retirement, house, long-term goals
+  education          - learning financial concepts, explanations
+
+
+Examples:
+  'how much did I spend?' -> {"agents":["accountant"],"intent_bucket":"spending_query"}
+  'should I buy MTNN?'    -> {"agents":["investment_advisor","risk_assessor"],"intent_bucket":"stock_recommendation"}
+  'plan my retirement'    -> {"agents":["life_planner","savings_optimizer"],"intent_bucket":"retirement_planning"}
+  'I keep overspending'   -> {"agents":["behavioral_coach","accountant"],"intent_bucket":"behavioral_flag"}
+  'what is a P/E ratio?'  -> {"agents":["education"],"intent_bucket":"concept_explanation"}
+
+
+Return ONLY valid JSON. No explanation.
+'''
+
+
+SYNTHESIS_PROMPT = '''
+You are NairaSage, a personal financial co-pilot for Nigerians.
+Synthesize the specialist agent reports below into ONE clear, actionable response.
+Rules:
+- Write as if speaking directly to the user
+- Use Nigerian context (NGN, NGX, T-bills, CBN etc)
+- Be specific with numbers — never be vague
+- Calibrate complexity to user literacy score: {literacy_score}/100
+- If literacy < 40: use very simple language and analogies
+- If literacy 40-70: explain terms briefly
+- If literacy > 70: use proper financial terminology
+- End with one clear next action the user should take
+'''
+
+
+class CoordinatorAgent:
+    def __init__(self, user_id: int):
+        self.user_id = user_id
+        self.llm     = get_routing_llm()
+        self.dna     = FinancialDNA.objects.get(user_id=user_id)
+
+
+    def route(self, message: str) -> Dict[str, Any]:
+        """Determine which agents to call. Returns routing decision."""
+        # Check routing_weights for learned preferences
+        response = self.llm.invoke([
+            SystemMessage(content=ROUTING_PROMPT),
+            HumanMessage(content=message),
+        ])
+        try:
+            decision = json.loads(response.content)
+            # Apply learned routing weights to re-rank agents
+            decision = self._apply_routing_weights(decision)
+            return decision
+        except json.JSONDecodeError:
+            return {'agents': ['accountant'], 'intent_bucket': 'fallback'}
+
+
+    def _apply_routing_weights(self, decision: dict) -> dict:
+        """Boost or suppress agents based on learned weights."""
+        weights = self.dna.routing_weights
+        bucket  = decision.get('intent_bucket', '')
+        if bucket in weights:
+            # Add any consistently high-performing agents for this bucket
+            for agent, weight in weights[bucket].items():
+                if weight > 0.8 and agent not in decision['agents']:
+                    decision['agents'].append(agent)
+        return decision
+
+
+    def _load_agent(self, agent_path: str, user_id: int):
+        """Dynamically import and instantiate an agent class."""
+        module_path, class_name = agent_path.rsplit('.', 1)
+        import importlib
+        module = importlib.import_module(module_path)
+        return getattr(module, class_name)(user_id=user_id)
+
+
+    def dispatch(self, message: str) -> Dict[str, Any]:
+        """Main entry point. Route, call agents, synthesize."""
+        start    = time.time()
+        routing  = self.route(message)
+        agents   = routing.get('agents', ['accountant'])
+        bucket   = routing.get('intent_bucket', 'unknown')
+
+
+        # Run agents
+        results  = {}
+        for name in agents:
+            path = AGENT_REGISTRY.get(name)
+            if not path: continue
+            try:
+                agent = self._load_agent(path, self.user_id)
+                results[name] = agent.run({'query': message})
+            except Exception as e:
+                logger.error(f'Agent {name} failed: {e}')
+                results[name] = {'summary': f'[{name} unavailable]', 'data': {}}
+
+
+        # Synthesize
+        response = self._synthesize(message, results)
+
+
+        # Log outcome for self-learning
+        elapsed = int((time.time() - start) * 1000)
+        SkillOutcome.objects.create(
+            user_id=self.user_id,
+            intent_bucket=bucket,
+            agents_called=agents,
+            user_query=message[:500],
+            response_time_ms=elapsed,
+        )
+
+
+        # Check for skill gaps
+        if not results or all('[unavailable]' in r.get('summary','') for r in results.values()):
+            self._flag_skill_gap(message, bucket)
+
+
+        return {
+            'response':    response,
+            'agents_used': agents,
+            'intent':      bucket,
+        }
+
+
+    def _synthesize(self, query: str, results: dict) -> str:
+        context = '\n\n'.join([
+            f'[{name} report]: {r.get("summary","")}' 
+            for name, r in results.items()
+        ])
+        literacy = self.dna.financial_literacy_score
+        response = self.llm.invoke([
+            SystemMessage(content=SYNTHESIS_PROMPT.format(
+                literacy_score=literacy
+            )),
+            HumanMessage(content=(
+                f'User asked: {query}\n\nAgent reports:\n{context}'
+            )),
+        ])
+        return response.content
+
+
+    def _flag_skill_gap(self, query: str, bucket: str):
+        """Flag this query type for David's review if unhandleable."""
+        existing = SkillGapReport.objects.filter(
+            query_pattern__icontains=bucket, status='pending'
+        ).first()
+        if existing:
+            existing.frequency += 1
+            existing.save(update_fields=['frequency'])
+        else:
+            # Ask LLM to write a spec for the missing skill
+            spec_response = self.llm.invoke([
+                SystemMessage(content='Write a brief technical spec for a new NairaSage agent skill that would handle this type of user query. Include: what data it needs, what APIs to call, what output to produce. Keep it under 200 words.'),
+                HumanMessage(content=f'Query: {query}\nBucket: {bucket}'),
+            ])
+            SkillGapReport.objects.create(
+                query_pattern=query[:300],
+                proposed_spec=spec_response.content,
+            )
+
+
+    def record_feedback(self, outcome_id: int, was_helpful: bool):
+        """Record user thumbs up/down — triggers learning update."""
+        SkillOutcome.objects.filter(id=outcome_id).update(
+            was_helpful=was_helpful
+        )
+        # Queue the learning update job
+        from tasks.scout_tasks import update_routing_weights
+        update_routing_weights.delay(self.user_id)
+
+
+
+
+
+6.3 agents/skills/ — Shared Skill Library
+CURSOR INSTRUCTION
+These are pure Python functions — no LLM calls. They do the hard financial math and data operations that agents use as tools. Build them with numpy/pandas.
+
+
+agents/skills/financial_math.py
+
+# agents/skills/financial_math.py
+
+
+import numpy as np
+from decimal import Decimal
+from typing import List, Dict
+
+
+def compound_growth(principal: float, rate: float,
+                    years: int, contributions: float = 0) -> Dict:
+    """Calculate compound growth with optional monthly contributions."""
+    monthly_rate = rate / 12 / 100
+    months = years * 12
+    balance = principal
+    history = []
+    for m in range(months):
+        balance = balance * (1 + monthly_rate) + contributions
+        if m % 12 == 11:
+            history.append(round(balance, 2))
+    return {'final': round(balance, 2), 'history': history}
+
+
+def real_return(nominal_return_pct: float,
+               inflation_pct: float) -> float:
+    """Fisher equation: real return adjusted for inflation."""
+    return ((1 + nominal_return_pct/100) /
+            (1 + inflation_pct/100) - 1) * 100
+
+
+def debt_payoff_schedule(principal: float, annual_rate: float,
+                          monthly_payment: float) -> Dict:
+    """Calculate months to payoff and total interest paid."""
+    monthly_rate = annual_rate / 12 / 100
+    balance = principal
+    months = 0
+    total_interest = 0
+    while balance > 0 and months < 600:
+        interest = balance * monthly_rate
+        principal_paid = monthly_payment - interest
+        balance -= principal_paid
+        total_interest += interest
+        months += 1
+    return {
+        'months': months,
+        'total_interest': round(total_interest, 2),
+        'total_paid': round(principal + total_interest, 2),
+    }
+
+
+def sharpe_ratio(returns: List[float], risk_free: float = 0.18) -> float:
+    """Sharpe ratio. risk_free = Nigeria T-bill rate (default 18%)."""
+    if not returns or len(returns) < 2:
+        return 0.0
+    arr = np.array(returns)
+    excess = arr - (risk_free / 12)
+    return float(np.mean(excess) / (np.std(excess) + 1e-9))
+
+
+def portfolio_var(returns: List[float], confidence: float = 0.95) -> float:
+    """Value at Risk at given confidence level."""
+    if not returns:
+        return 0.0
+    return float(np.percentile(np.array(returns), (1 - confidence) * 100))
+
+
+def paye_nigeria(annual_gross: float) -> Dict:
+    """Calculate Nigerian PAYE tax on annual gross income (2024 rates)."""
+    # PITA tax bands
+    bands = [
+        (300_000,   7),
+        (300_000,  11),
+        (500_000,  15),
+        (500_000,  19),
+        (1_600_000,21),
+        (float('inf'), 24),
+    ]
+    # CRA: higher of NGN 200k or 1% of gross income + 20% of gross
+    cra = max(200_000, 0.01 * annual_gross) + 0.20 * annual_gross
+    taxable = max(0, annual_gross - cra)
+    tax = 0
+    remaining = taxable
+    for band_size, rate in bands:
+        if remaining <= 0: break
+        chunk = min(remaining, band_size)
+        tax  += chunk * rate / 100
+        remaining -= chunk
+    return {
+        'gross': annual_gross,
+        'cra': round(cra, 2),
+        'taxable': round(taxable, 2),
+        'tax': round(tax, 2),
+        'effective_rate': round(tax / annual_gross * 100, 2) if annual_gross else 0,
+        'monthly_paye': round(tax / 12, 2),
+    }
+
+
+
+
+
+7. REST API Endpoints — Django URLs & Views
+CURSOR INSTRUCTION
+All endpoints live under /api/. Register all app URLs in config/urls.py. Every view must inherit from DRF's APIView or a generic view. Every endpoint requires IsAuthenticated unless marked Public in the table below.
+
+
+7.1 config/urls.py
+config/urls.py
+
+from django.contrib import admin
+from django.urls import path, include
+
+
+urlpatterns = [
+    path('admin/',          admin.site.urls),
+    path('api/auth/',       include('apps.users.urls')),
+    path('api/dna/',        include('apps.users.dna_urls')),
+    path('api/accounts/',   include('apps.accounts.urls')),
+    path('api/transactions/',include('apps.transactions.urls')),
+    path('api/portfolio/',  include('apps.investments.urls')),
+    path('api/market/',     include('apps.investments.market_urls')),
+    path('api/goals/',      include('apps.goals.urls')),
+    path('api/opportunities/',include('apps.opportunities.urls')),
+    path('api/tax/',        include('apps.tax.urls')),
+    path('api/debt/',       include('apps.debt.urls')),
+    path('api/agent/',      include('apps.agent_urls')),
+    # agent_urls.py lives at backend/apps/agent_urls.py
+    path('api/billing/',    include('apps.billing.urls')),
+    path('api/notify/',     include('apps.notifications.urls')),
+    path('api/health/',     include('core.health_urls')),
+    path('django-rq/',      include('django_rq.urls')),
+]
+
+
+
+
+
+7.2 Agent Chat Endpoint (apps/agent_urls.py)
+CURSOR INSTRUCTION
+Create backend/apps/agent_urls.py. This file handles all AI agent routing.
+
+
+apps/agent_urls.py
+
+# backend/apps/agent_urls.py
+from django.urls import path
+from . import agent_views
+
+
+urlpatterns = [
+    # Main coordinator endpoint — auto-routes to correct agents
+    path('chat/', agent_views.CoordinatorChatView.as_view()),
+
+
+    # Direct agent endpoints for specific modules
+    path('accountant/',         agent_views.AgentDirectView.as_view(),
+         {'agent': 'accountant'}),
+    path('investment-advisor/', agent_views.AgentDirectView.as_view(),
+         {'agent': 'investment_advisor'}),
+    path('tax-advisor/',        agent_views.AgentDirectView.as_view(),
+         {'agent': 'tax_advisor'}),
+    path('behavioral-coach/',   agent_views.AgentDirectView.as_view(),
+         {'agent': 'behavioral_coach'}),
+    path('life-planner/',       agent_views.AgentDirectView.as_view(),
+         {'agent': 'life_planner'}),
+    path('educator/',           agent_views.AgentDirectView.as_view(),
+         {'agent': 'education'}),
+
+
+    # Scenario simulation
+    path('scenario/',           agent_views.ScenarioView.as_view()),
+
+
+    # Feedback for self-learning
+    path('feedback/<int:outcome_id>/',
+         agent_views.FeedbackView.as_view()),
+
+
+    # Conversation history
+    path('history/<str:agent>/',
+         agent_views.AgentHistoryView.as_view()),
+    path('history/<str:agent>/clear/',
+         agent_views.ClearHistoryView.as_view()),
+]
+
+
+
+
+
+7.3 Agent Views (apps/agent_views.py)
+apps/agent_views.py
+
+# backend/apps/agent_views.py
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from agents.coordinator import CoordinatorAgent, AGENT_REGISTRY
+from apps.users.models import SkillOutcome
+
+
+class CoordinatorChatView(APIView):
+    def post(self, request):
+        message = request.data.get('message', '').strip()
+        if not message:
+            return Response(
+                {'error': 'message is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        coordinator = CoordinatorAgent(user_id=request.user.id)
+        result = coordinator.dispatch(message)
+        return Response(result)
+
+
+
+
+class AgentDirectView(APIView):
+    def post(self, request, agent: str):
+        message = request.data.get('message', '').strip()
+        path = AGENT_REGISTRY.get(agent)
+        if not path:
+            return Response(
+                {'error': f'Unknown agent: {agent}'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        import importlib
+        mod_path, cls = path.rsplit('.', 1)
+        module   = importlib.import_module(mod_path)
+        AgentCls = getattr(module, cls)
+        agent_obj = AgentCls(user_id=request.user.id)
+        result = agent_obj.run({'query': message})
+        return Response(result)
+
+
+
+
+class FeedbackView(APIView):
+    def post(self, request, outcome_id: int):
+        helpful = request.data.get('helpful', None)
+        if helpful is None:
+            return Response({'error': 'helpful field required'})
+        coordinator = CoordinatorAgent(user_id=request.user.id)
+        coordinator.record_feedback(outcome_id, bool(helpful))
+        return Response({'status': 'recorded'})
+
+
+
+
+class AgentHistoryView(APIView):
+    def get(self, request, agent: str):
+        from apps.users.models import FinancialDNA
+        dna    = FinancialDNA.objects.get(user_id=request.user.id)
+        memory = dna.agent_memory.get(agent, {})
+        return Response({'agent': agent, 'memory': memory})
+
+
+
+
+class ClearHistoryView(APIView):
+    def delete(self, request, agent: str):
+        from apps.users.models import FinancialDNA
+        dna = FinancialDNA.objects.get(user_id=request.user.id)
+        dna.agent_memory.pop(agent, None)
+        dna.save(update_fields=['agent_memory'])
+        return Response({'status': 'cleared'})
+
+
+
+
+
+8. Background Tasks — Django-RQ
+8.1 tasks/sync_tasks.py
+tasks/sync_tasks.py
+
+import django_rq
+from integrations.mono.client import MonoClient
+from apps.accounts.models import BankAccount
+from apps.transactions.models import Transaction
+import logging
+logger = logging.getLogger(__name__)
+
+
+@django_rq.job('default')
+def sync_account_transactions(account_id: int):
+    account = BankAccount.objects.get(id=account_id)
+    client  = MonoClient()
+    try:
+        txns = client.get_transactions(
+            account.mono_account_id, limit=100
+        )
+        created = 0
+        for t in txns:
+            _, was_created = Transaction.objects.update_or_create(
+                mono_id=t['_id'],
+                defaults={
+                    'account':     account,
+                    'amount':      abs(t['amount']) / 100,
+                    'type':        'credit' if t['amount'] > 0 else 'debit',
+                    'description': t.get('narration', ''),
+                    'date':        t['date'][:10],
+                    'balance':     t.get('balance', 0) / 100,
+                }
+            )
+            if was_created: created += 1
+        # Queue AI categorization for new transactions
+        if created > 0:
+            categorize_new_transactions.delay(account.user_id)
+        logger.info(f'Synced {created} new transactions for account {account_id}')
+    except Exception as e:
+        logger.error(f'Sync failed for account {account_id}: {e}')
+
+
+
+
+@django_rq.job('default')
+def categorize_new_transactions(user_id: int):
+    from agents.accountant.agent import AccountantAgent
+    agent = AccountantAgent(user_id=user_id)
+    agent.run({'query': 'Categorize all uncategorized transactions.'})
+
+
+
+
+@django_rq.job('default')
+def sync_all_active_accounts():
+    """Called by cron every 4 hours."""
+    accounts = BankAccount.objects.filter(is_active=True)
+    for acc in accounts:
+        sync_account_transactions.delay(acc.id)
+
+
+
+
+
+8.2 tasks/scout_tasks.py
+tasks/scout_tasks.py
+
+import django_rq
+import logging
+from apps.users.models import User, FinancialDNA, SkillOutcome
+logger = logging.getLogger(__name__)
+
+
+@django_rq.job('low')
+def run_opportunity_scout(user_id: int):
+    from agents.opportunity_scout.agent import OpportunityScoutAgent
+    try:
+        agent  = OpportunityScoutAgent(user_id=user_id)
+        result = agent.run({})
+        if result.get('saved'):
+            from tasks.alert_tasks import send_opportunity_alert
+            send_opportunity_alert.delay(user_id, result['saved'])
+    except Exception as e:
+        logger.error(f'Scout failed for user {user_id}: {e}')
+
+
+
+
+@django_rq.job('low')
+def scout_all_active_users():
+    """Daily cron — run scout for all pro/elite users."""
+    users = User.objects.filter(
+        tier__in=['pro', 'elite'], is_active=True
+    ).values_list('id', flat=True)
+    for uid in users:
+        run_opportunity_scout.delay(uid)
+
+
+
+
+@django_rq.job('low')
+def update_routing_weights(user_id: int):
+    """
+    Self-learning: analyze SkillOutcome records to improve
+    routing weights in the user's Financial DNA.
+    Run after each feedback event.
+    """
+    from collections import defaultdict
+    outcomes = SkillOutcome.objects.filter(
+        user_id=user_id,
+        was_helpful__isnull=False
+    ).values('intent_bucket', 'agents_called', 'was_helpful')
+
+
+    bucket_stats = defaultdict(lambda: defaultdict(lambda: {'pos':0,'neg':0}))
+    for o in outcomes:
+        for agent in o['agents_called']:
+            if o['was_helpful']:
+                bucket_stats[o['intent_bucket']][agent]['pos'] += 1
+            else:
+                bucket_stats[o['intent_bucket']][agent]['neg'] += 1
+
+
+    new_weights = {}
+    for bucket, agents in bucket_stats.items():
+        new_weights[bucket] = {}
+        for agent, counts in agents.items():
+            total = counts['pos'] + counts['neg']
+            if total >= 3:  # minimum samples
+                new_weights[bucket][agent] = round(
+                    counts['pos'] / total, 3
+                )
+
+
+    dna = FinancialDNA.objects.get(user_id=user_id)
+    dna.routing_weights = new_weights
+    dna.save(update_fields=['routing_weights', 'updated_at'])
+    logger.info(f'Updated routing weights for user {user_id}')
+
+
+
+
+
+8.3 tasks/scheduler.py — Cron Setup
+tasks/scheduler.py
+
+# tasks/scheduler.py
+# Run once: python manage.py setup_scheduled_tasks
+
+
+from django_rq import get_scheduler
+from datetime import datetime
+
+
+def setup_scheduled_tasks():
+    scheduler = get_scheduler('low')
+    # Clear existing to avoid duplicates on restart
+    for job in scheduler.get_jobs(): job.delete()
+
+
+    # Sync bank accounts every 4 hours
+    scheduler.schedule(
+        scheduled_time=datetime.utcnow(),
+        func='tasks.sync_tasks.sync_all_active_accounts',
+        interval=4 * 3600, repeat=None,
+    )
+    # Opportunity scout daily at 06:00 WAT (05:00 UTC)
+    scheduler.cron('0 5 * * *',
+        func='tasks.scout_tasks.scout_all_active_users',
+        queue_name='low')
+    # FX rates every 15 min
+    scheduler.schedule(
+        scheduled_time=datetime.utcnow(),
+        func='tasks.market_tasks.refresh_fx_rates',
+        interval=900, repeat=None,
+    )
+    # Market prices every 30 min on trading days
+    scheduler.cron('*/30 9-17 * * 1-5',
+        func='tasks.market_tasks.refresh_all_portfolios',
+        queue_name='default')
+
+
+# Management command to call setup_scheduled_tasks:
+# Create backend/core/management/commands/setup_scheduled_tasks.py
+# with: call_command wrapping setup_scheduled_tasks()
+
+
+
+
+
+9. Frontend — Next.js 14 TypeScript
+9.1 package.json — Key Dependencies
+package.json
+
+{
+  "dependencies": {
+    "next": "^14.2.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.4.5",
+    "tailwindcss": "^3.4.3",
+    "@tanstack/react-query": "^5.40.0",
+    "zustand": "^4.5.2",
+    "axios": "^1.7.2",
+    "next-auth": "^4.24.7",
+    "react-hook-form": "^7.52.0",
+    "zod": "^3.23.8",
+    "@hookform/resolvers": "^3.6.0",
+    "recharts": "^2.12.6",
+    "lucide-react": "^0.379.0",
+    "clsx": "^2.1.1",
+    "class-variance-authority": "^0.7.0",
+    "date-fns": "^3.6.0",
+    "numeral": "^2.0.6"
+  }
+}
+
+
+# Install shadcn/ui after setup:
+# npx shadcn-ui@latest init
+# npx shadcn-ui@latest add button card input label
+#   select textarea badge separator scroll-area
+#   dialog sheet tabs progress avatar
+
+
+
+
+
+9.2 tsconfig.json
+tsconfig.json
+
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": false,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "plugins": [{"name": "next"}],
+    "paths": {"@/*": ["./*"]}
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules"]
+}
+
+
+
+
+
+9.3 lib/api.ts
+lib/api.ts
+
+import axios, { AxiosInstance } from 'axios';
+import { getSession } from 'next-auth/react';
+
+
+const api: AxiosInstance = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL,
+  timeout: 30000,
+  headers: { 'Content-Type': 'application/json' },
+});
+
+
+api.interceptors.request.use(async (config) => {
+  const session = await getSession();
+  if (session?.accessToken) {
+    config.headers.Authorization = `Bearer ${session.accessToken}`;
+  }
+  return config;
+});
+
+
+api.interceptors.response.use(
+  (res) => res,
+  async (error) => {
+    if (error.response?.status === 401) {
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
+
+
+export default api;
+
+
+// ── Typed endpoint helpers ───────────────────────────────
+export const agentAPI = {
+  chat: (message: string) =>
+    api.post<AgentChatResponse>('/api/agent/chat/', { message }),
+  directChat: (agent: string, message: string) =>
+    api.post<AgentChatResponse>(`/api/agent/${agent}/`, { message }),
+  feedback: (outcomeId: number, helpful: boolean) =>
+    api.post(`/api/agent/feedback/${outcomeId}/`, { helpful }),
+  clearHistory: (agent: string) =>
+    api.delete(`/api/agent/history/${agent}/clear/`),
+};
+
+
+export const accountsAPI = {
+  list: () => api.get<BankAccount[]>('/api/accounts/'),
+  link: (code: string) => api.post('/api/accounts/link/', { code }),
+  sync: (id: number) => api.post(`/api/accounts/${id}/sync/`),
+};
+
+
+export const transactionsAPI = {
+  list: (params?: TransactionFilters) =>
+    api.get<PaginatedResponse<Transaction>>('/api/transactions/', { params }),
+  summary: (period: string) =>
+    api.get<TransactionSummary>('/api/transactions/summary/', {
+      params: { period }
+    }),
+};
+
+
+export const portfolioAPI = {
+  get: () => api.get<Portfolio>('/api/portfolio/'),
+  addHolding: (data: NewHolding) =>
+    api.post('/api/portfolio/holdings/', data),
+};
+
+
+
+
+
+9.4 types/index.ts — All TypeScript Interfaces
+types/index.ts
+
+// types/index.ts
+
+
+export interface User {
+  id: number;
+  email: string;
+  firstName: string;
+  lastName: string;
+  tier: 'free' | 'pro' | 'elite';
+  bvnVerified: boolean;
+  onboarded: boolean;
+}
+
+
+export interface FinancialDNA {
+  primaryGoal: string;
+  lifeStage: string;
+  monthlyIncome: number | null;
+  riskTolerance: 'conservative' | 'moderate' | 'aggressive' | '';
+  investmentHorizon: number | null;
+  financialLiteracyScore: number;
+  impulseSpendScore: number;
+  fomoSensitivityScore: number;
+  savingsDiscipline: number;
+}
+
+
+export interface BankAccount {
+  id: number;
+  institution: string;
+  accountNumber: string;
+  accountType: string;
+  balance: number;
+  currency: string;
+  balanceUpdated: string | null;
+  isActive: boolean;
+}
+
+
+export interface Transaction {
+  id: number;
+  amount: number;
+  type: 'credit' | 'debit';
+  description: string;
+  category: string;
+  aiCategory: string;
+  merchant: string;
+  date: string;
+  isFlagged: boolean;
+  flagReason: string;
+}
+
+
+export interface Portfolio {
+  id: number;
+  totalValue: number;
+  riskScore: number | null;
+  holdings: PortfolioHolding[];
+}
+
+
+export interface PortfolioHolding {
+  id: number;
+  assetType: string;
+  symbol: string;
+  name: string;
+  units: number;
+  avgCost: number;
+  currentPrice: number;
+  currentValue: number;
+  pnl: number;
+  pnlPct: number;
+}
+
+
+export interface AgentChatResponse {
+  response: string;
+  agentsUsed: string[];
+  intent: string;
+  outcomeId?: number;
+}
+
+
+export interface Opportunity {
+  id: number;
+  oppType: string;
+  title: string;
+  description: string;
+  matchScore: number;
+  urgencyScore: number;
+  deadline: string | null;
+  estimatedValue: number | null;
+  sourceUrl: string;
+  isActioned: boolean;
+  isDismissed: boolean;
+}
+
+
+export interface PaginatedResponse<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
+
+
+export interface TransactionFilters {
+  page?: number;
+  category?: string;
+  type?: 'credit' | 'debit';
+  date_from?: string;
+  date_to?: string;
+  search?: string;
+}
+
+
+export interface TransactionSummary {
+  totalIncome: number;
+  totalExpenses: number;
+  savingsRate: number;
+  byCategory: Record<string, number>;
+  monthOverMonth: { income: number; expenses: number }[];
+}
+
+
+
+
+
+10. Local Development Setup & Deployment
+10.1 docker-compose.yml (repo root)
+docker-compose.yml
+
+version: '3.8'
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: nairasage
+      POSTGRES_USER: nairasage
+      POSTGRES_PASSWORD: password
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+
+
+volumes:
+  pgdata:
+
+
+
+
+
+10.2 First-Time Backend Setup (run in order)
+bash
+
+cd backend
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+
+
+# Copy and fill in .env
+cp ../.env.example .env
+# Edit .env: set DATABASE_URL, REDIS_URL, LLM_PROVIDER, MISTRAL_API_KEY
+
+
+# Start DB + Redis
+cd .. && docker-compose up -d && cd backend
+
+
+# Run migrations
+python manage.py migrate
+
+
+# Create superuser
+python manage.py createsuperuser
+
+
+# Set up cron schedules
+python manage.py setup_scheduled_tasks
+
+
+# Start Django
+python manage.py runserver
+# → http://localhost:8000
+
+
+# Terminal 2: RQ worker
+python manage.py rqworker high default low
+
+
+# Terminal 3: RQ scheduler
+python manage.py rqscheduler
+
+
+
+
+
+10.3 First-Time Frontend Setup
+bash
+
+cd frontend
+npm install
+
+
+# Init shadcn/ui
+npx shadcn-ui@latest init
+# Choose: TypeScript, default style, default base color, yes CSS vars
+
+
+# Add required components
+npx shadcn-ui@latest add button card input label select
+npx shadcn-ui@latest add textarea badge separator scroll-area
+npx shadcn-ui@latest add dialog sheet tabs progress avatar
+
+
+# Configure .env.local
+cp .env.example .env.local
+# Set NEXT_PUBLIC_API_URL=http://localhost:8000
+
+
+# Start dev server
+npm run dev
+# → http://localhost:3000
+
+
+
+
+
+10.4 Railway Deployment (backend/Procfile)
+Procfile
+
+web:       gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 4
+worker:    python manage.py rqworker high default low
+scheduler: python manage.py rqscheduler
+
+
+# In Railway: create 3 services from same repo
+# Service 1 (web):       Procfile target = web
+# Service 2 (worker):    Procfile target = worker
+# Service 3 (scheduler): Procfile target = scheduler
+
+
+# Add plugins via Railway dashboard:
+# - PostgreSQL plugin → auto-injects DATABASE_URL
+# - Redis plugin      → auto-injects REDIS_URL
+
+
+# Set all other env vars in Railway dashboard under Variables tab
+# Production settings: set DJANGO_SETTINGS_MODULE=config.settings.production
+
+
+
+
+
+10.5 Build Order for Cursor — Follow Exactly
+CURSOR: RECOMMENDED BUILD SEQUENCE
+Build in this order. Do not skip steps. Test each step before moving to the next.
+
+
+#
+Area
+What to Build
+1
+Repo setup
+Create monorepo structure. docker-compose.yml. .env.example. .gitignore.
+2
+Django core
+config/settings/. AUTH_USER_MODEL. All INSTALLED_APPS. Database connected.
+3
+All models
+Build all models in Section 5. Run migrations. Verify in Django admin.
+4
+LLM factory
+core/llm_factory.py. Test with: from core.llm_factory import get_llm; get_llm().invoke([...])
+5
+BaseAgent
+agents/base_agent.py. Test: instantiate with a real user_id, call .chat()
+6
+Accountant agent
+agents/accountant/. First full agent. Verify memory persists across calls.
+7
+Coordinator
+agents/coordinator.py. Test routing with sample queries. Verify dispatch().
+8
+Remaining agents
+Build all 11 specialist agents one by one. Test each independently.
+9
+Integrations
+Mono client first. Then Paystack. Then NGX/iTick. Then Fixer.
+10
+API endpoints
+All DRF views and URLs. Test with Postman or httpie.
+11
+Background tasks
+Django-RQ tasks. Cron scheduler. Test with django-rq dashboard.
+12
+Next.js shell
+App Router structure. Auth (NextAuth). API client. Types.
+13
+Dashboard UI
+Dashboard page. Accounts page. Transactions page. Agent chat UI.
+14
+Remaining pages
+Goals, investments, opportunities, tax, debt, settings.
+15
+Deploy
+Vercel (frontend). Railway (backend + worker + scheduler).
+
+
+FINAL NOTE FOR CURSOR
+When you are unsure about a detail not covered in this spec, default to: (1) Django best practices, (2) the DRF documentation, (3) LangChain 0.2.x documentation. Never deviate from the models, file paths, or naming conventions defined in this document. All monetary amounts are in NGN (Nigerian Naira) unless a field explicitly says otherwise.
+
+

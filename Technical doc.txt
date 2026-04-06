@@ -1,0 +1,1959 @@
+
+NairaSage
+Technical Architecture & Engineering Document
+Confidential Engineering Reference — v1.0
+
+Product
+NairaSage — AI-Powered Personal Financial Co-Pilot
+Version
+1.0 — April 2026
+Author
+David Samuel
+Frontend
+Next.js 14 + TypeScript
+Backend
+Django 5 (Python 3.12)
+AI Layer
+LangChain + Mistral (default) / OpenAI (switchable via .env)
+Background Tasks
+Django-RQ + Redis
+Databases
+PostgreSQL 16 (primary) + Redis 7 (cache / queue)
+Deployment
+Vercel (frontend) + Railway or Render (Django backend)
+Status
+MVP Phase — Web First, Mobile Later
+
+
+CONFIDENTIAL — FOR ENGINEERING USE ONLY
+
+1. System Overview
+1.1 Architecture Philosophy
+NairaSage is a full-stack, AI-native financial platform built on a decoupled architecture: a Next.js TypeScript frontend communicates with a Django REST API backend over HTTPS, while a separate AI orchestration layer (Django services + LangChain) handles multi-agent coordination. Background work (opportunity scouting, cron triggers, autonomous execution) runs on Django-RQ workers backed by Redis.
+
+The system is designed to be LLM-agnostic at the configuration level. Switching between Mistral (default) and OpenAI requires only a change in the .env file — no code changes needed. LangChain provides the abstraction layer that makes this possible.
+
+1.2 High-Level Stack Summary
+
+Frontend
+Next.js 14 (App Router) + TypeScript + Tailwind CSS + shadcn/ui
+Backend API
+Django 5.x + Django REST Framework (DRF) + SimpleJWT
+AI Orchestration
+LangChain (Python) — Mistral default, OpenAI optional
+Agent Runtime
+LangGraph for stateful multi-agent workflows
+Task Queue
+Django-RQ + Redis (background agents, cron jobs, async tasks)
+Primary DB
+PostgreSQL 16 — all user data, financial DNA, transactions
+Cache / Queue
+Redis 7 — session cache, RQ queues, rate limiting
+Auth
+JWT (SimpleJWT) + BVN verification via Mono Identity API
+File Storage
+AWS S3 or Cloudflare R2 (statements, exports, avatars)
+Email
+Resend API (transactional) + SendGrid (bulk alerts)
+Frontend Hosting
+Vercel
+Backend Hosting
+Railway (Django + RQ worker + Redis + Postgres)
+CI/CD
+GitHub Actions → Vercel (frontend) + Railway (backend) auto-deploy
+Monitoring
+Sentry (errors) + PostHog (product analytics) + Grafana (infra)
+
+
+1.3 LLM Configuration (.env Switching)
+All AI model selection is controlled by environment variables. The LangChain abstraction ensures the same agent code runs regardless of which provider is active:
+
+# ── LLM Provider Selection ──────────────────────────────
+# Set to: mistral | openai
+LLM_PROVIDER=mistral
+
+
+# ── Mistral Configuration ───────────────────────────────
+MISTRAL_API_KEY=your_mistral_api_key_here
+MISTRAL_MODEL=mistral-large-latest          # or mistral-medium, open-mistral-7b
+
+
+# ── OpenAI Configuration (fallback / alternative) ───────
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_MODEL=gpt-4o                        # or gpt-4-turbo, gpt-3.5-turbo
+
+
+# ── Shared LLM Settings ──────────────────────────────────
+LLM_TEMPERATURE=0.2                        # Low = more deterministic financial advice
+LLM_MAX_TOKENS=4096
+LLM_TIMEOUT=60
+
+
+# core/llm_factory.py
+import os
+from langchain_mistralai import ChatMistralAI
+from langchain_openai import ChatOpenAI
+from langchain_core.language_models import BaseChatModel
+
+
+def get_llm(temperature: float = None) -> BaseChatModel:
+    provider = os.getenv('LLM_PROVIDER', 'mistral').lower()
+    temp = temperature or float(os.getenv('LLM_TEMPERATURE', '0.2'))
+
+
+    if provider == 'openai':
+        return ChatOpenAI(
+            model=os.getenv('OPENAI_MODEL', 'gpt-4o'),
+            temperature=temp,
+            max_tokens=int(os.getenv('LLM_MAX_TOKENS', '4096')),
+            openai_api_key=os.getenv('OPENAI_API_KEY'),
+        )
+    # Default: Mistral
+    return ChatMistralAI(
+        model=os.getenv('MISTRAL_MODEL', 'mistral-large-latest'),
+        temperature=temp,
+        mistral_api_key=os.getenv('MISTRAL_API_KEY'),
+    )
+
+
+2. Project Structure
+2.1 Repository Layout (Monorepo)
+nairasage/
+├── frontend/                          # Next.js 14 TypeScript app
+│   ├── app/                           # App Router pages & layouts
+│   │   ├── (auth)/                    # Auth group: login, register, onboard
+│   │   ├── (dashboard)/               # Protected dashboard routes
+│   │   │   ├── layout.tsx             # Dashboard shell (sidebar, header)
+│   │   │   ├── page.tsx               # Main dashboard
+│   │   │   ├── accounts/              # Bank accounts & transactions
+│   │   │   ├── investments/           # Portfolio & market data
+│   │   │   ├── goals/                 # Savings goals
+│   │   │   ├── opportunities/         # Scout results
+│   │   │   ├── tax/                   # Tax planning module
+│   │   │   ├── debt/                  # Debt manager
+│   │   │   ├── scenarios/             # War-gaming
+│   │   │   ├── coach/                 # Behavioral coach
+│   │   │   ├── learn/                 # Education agent
+│   │   │   └── settings/              # Profile & preferences
+│   │   ├── (marketing)/               # Public website pages
+│   │   │   ├── page.tsx               # Landing page
+│   │   │   ├── pricing/page.tsx
+│   │   │   ├── about/page.tsx
+│   │   │   └── blog/                  # SEO blog
+│   │   └── api/                       # Next.js API routes (thin proxies only)
+│   ├── components/
+│   │   ├── ui/                        # shadcn/ui base components
+│   │   ├── dashboard/                 # Dashboard-specific components
+│   │   ├── agents/                    # Agent chat/output components
+│   │   ├── charts/                    # Recharts wrappers
+│   │   └── forms/                     # Form components with react-hook-form
+│   ├── lib/
+│   │   ├── api.ts                     # Axios client + interceptors
+│   │   ├── auth.ts                    # NextAuth config
+│   │   ├── store/                     # Zustand stores
+│   │   └── hooks/                     # Custom React hooks
+│   ├── types/                         # Global TypeScript interfaces
+│   └── middleware.ts                  # Route protection
+│
+├── backend/                           # Django 5 project
+│   ├── config/                        # Django project root
+│   │   ├── settings/
+│   │   │   ├── base.py                # Shared settings
+│   │   │   ├── development.py
+│   │   │   └── production.py
+│   │   ├── urls.py                    # Root URL config
+│   │   └── wsgi.py / asgi.py
+│   ├── apps/
+│   │   ├── users/                     # Auth, profiles, Financial DNA
+│   │   ├── accounts/                  # Bank accounts (Mono integration)
+│   │   ├── transactions/              # Transaction data & categorization
+│   │   ├── investments/               # Portfolio, NGX data, Bamboo
+│   │   ├── goals/                     # Savings goals & optimizer
+│   │   ├── opportunities/             # Scout results & alerts
+│   │   ├── tax/                       # Tax tracking & FIRS data
+│   │   ├── debt/                      # Debt inventory & strategy
+│   │   ├── scenarios/                 # Life simulation models
+│   │   ├── notifications/             # Alerts, emails, push
+│   │   └── billing/                   # Paystack subscriptions
+│   ├── agents/                        # All AI agent code
+│   │   ├── coordinator.py             # Master orchestrator
+│   │   ├── base_agent.py              # Abstract base class
+│   │   ├── accountant/
+│   │   ├── economist/
+│   │   ├── investment_advisor/
+│   │   ├── opportunity_scout/
+│   │   ├── tax_advisor/
+│   │   ├── behavioral_coach/
+│   │   ├── debt_manager/
+│   │   ├── savings_optimizer/
+│   │   ├── risk_assessor/
+│   │   ├── life_planner/
+│   │   └── education/
+│   ├── integrations/                  # Third-party API clients
+│   │   ├── mono/                      # Open banking
+│   │   ├── ngx/                       # Stock exchange
+│   │   ├── bamboo/                    # Trade execution
+│   │   ├── paystack/                  # Payments
+│   │   ├── fixer/                     # FX rates
+│   │   └── cbn/                       # CBN data feeds
+│   ├── core/
+│   │   ├── llm_factory.py             # LLM provider switcher
+│   │   ├── financial_dna.py           # DNA profile engine
+│   │   ├── permissions.py             # DRF custom permissions
+│   │   └── utils.py
+│   ├── tasks/                         # Django-RQ task definitions
+│   │   ├── scout_tasks.py             # Opportunity scout cron
+│   │   ├── sync_tasks.py              # Bank data sync
+│   │   ├── alert_tasks.py             # Notification dispatch
+│   │   └── market_tasks.py            # Market data refresh
+│   └── manage.py
+│
+├── .env.example                       # All required env variables
+├── docker-compose.yml                 # Local dev: postgres + redis
+└── README.md
+
+
+3. Backend — Django 5
+3.1 Installation & Dependencies
+# requirements.txt
+
+
+# ── Core Framework ──────────────────────────────────────
+django==5.0.4
+djangorestframework==3.15.1
+djangorestframework-simplejwt==5.3.1
+django-cors-headers==4.3.1
+django-filter==24.1
+django-environ==0.11.2
+
+
+# ── Database ─────────────────────────────────────────────
+psycopg2-binary==2.9.9
+redis==5.0.4
+django-redis==5.4.0
+
+
+# ── Task Queue ───────────────────────────────────────────
+django-rq==2.10.2
+rq==1.16.2
+rq-scheduler==0.13.1
+
+
+# ── AI / LangChain ───────────────────────────────────────
+langchain==0.2.6
+langchain-core==0.2.10
+langchain-community==0.2.6
+langchain-mistralai==0.1.7
+langchain-openai==0.1.14
+langgraph==0.1.14
+
+
+# ── HTTP & Integrations ──────────────────────────────────
+httpx==0.27.0
+requests==2.32.3
+
+
+# ── Utilities ────────────────────────────────────────────
+celery==5.4.0           # optional if scaling beyond RQ
+Pillow==10.3.0
+python-dateutil==2.9.0
+pandas==2.2.2           # financial calculations
+numpy==1.26.4
+pydantic==2.7.1         # agent input/output validation
+python-slugify==8.0.4
+
+
+# ── Security ─────────────────────────────────────────────
+cryptography==42.0.7
+django-axes==6.4.0      # brute-force protection
+
+
+3.2 Django Settings (base.py overview)
+# config/settings/base.py  (key sections)
+
+
+import environ
+env = environ.Env()
+environ.Env.read_env(BASE_DIR / '.env')
+
+
+INSTALLED_APPS = [
+    # Django built-ins
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    # Third-party
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'corsheaders',
+    'django_filters',
+    'django_rq',
+    # NairaSage apps
+    'apps.users',
+    'apps.accounts',
+    'apps.transactions',
+    'apps.investments',
+    'apps.goals',
+    'apps.opportunities',
+    'apps.tax',
+    'apps.debt',
+    'apps.scenarios',
+    'apps.notifications',
+    'apps.billing',
+]
+
+
+DATABASES = {
+    'default': env.db('DATABASE_URL'),   # postgres://user:pass@host:5432/nairasage
+}
+
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': env('REDIS_URL'),
+        'OPTIONS': {'CLIENT_CLASS': 'django_redis.client.DefaultClient'},
+        'TIMEOUT': 300,
+    }
+}
+
+
+RQ_QUEUES = {
+    'default': {'USE_REDIS_CACHE': 'default'},
+    'high':    {'USE_REDIS_CACHE': 'default'},
+    'low':     {'USE_REDIS_CACHE': 'default'},
+}
+
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 50,
+    'DEFAULT_FILTER_BACKENDS': ['django_filters.rest_framework.DjangoFilterBackend'],
+}
+
+
+3.3 Database Models — Core
+
+3.3.1 Users & Financial DNA
+# apps/users/models.py
+
+
+from django.contrib.auth.models import AbstractUser
+from django.db import models
+
+
+class User(AbstractUser):
+    email        = models.EmailField(unique=True)
+    phone        = models.CharField(max_length=20, blank=True)
+    bvn_verified = models.BooleanField(default=False)
+    tier         = models.CharField(max_length=10,
+                      choices=[('free','Free'),('pro','Pro'),('elite','Elite')],
+                      default='free')
+    onboarded    = models.BooleanField(default=False)
+    created_at   = models.DateTimeField(auto_now_add=True)
+
+
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = ['username']
+
+
+
+
+class FinancialDNA(models.Model):
+    """Persistent AI memory profile — the core moat of NairaSage."""
+    user = models.OneToOneField(User, on_delete=models.CASCADE,
+                                related_name='financial_dna')
+
+
+    # Goals & stage
+    primary_goal      = models.CharField(max_length=100, blank=True)
+    life_stage        = models.CharField(max_length=50, blank=True)  # student/early-career/etc
+    monthly_income    = models.DecimalField(max_digits=14, decimal_places=2, null=True)
+    income_stability  = models.CharField(max_length=20, blank=True)  # stable/variable/gig
+
+
+    # Risk profile
+    risk_tolerance    = models.CharField(max_length=20, blank=True)  # conservative/moderate/aggressive
+    investment_horizon= models.IntegerField(null=True)  # years
+
+
+    # Behavioral signals (updated by Behavioral Coach agent)
+    impulse_spend_score    = models.FloatField(default=0.0)  # 0-1
+    fomo_sensitivity_score = models.FloatField(default=0.0)
+    savings_discipline     = models.FloatField(default=0.0)
+    stress_spend_triggers  = models.JSONField(default=list)  # e.g. ['late_night','weekends']
+
+
+    # Knowledge level (updated by Education agent)
+    financial_literacy_score = models.IntegerField(default=0)  # 0-100
+    completed_modules        = models.JSONField(default=list)
+
+
+    # Persistent memory store (LangChain conversation summaries)
+    agent_memory      = models.JSONField(default=dict)  # keyed by agent_name
+
+
+    # Preferences
+    preferred_language = models.CharField(max_length=20, default='en')
+    notification_prefs = models.JSONField(default=dict)
+
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+
+
+class UserGoal(models.Model):
+    user        = models.ForeignKey(User, on_delete=models.CASCADE, related_name='goals')
+    title       = models.CharField(max_length=200)
+    goal_type   = models.CharField(max_length=50)  # house/retirement/emergency/education/custom
+    target_amount    = models.DecimalField(max_digits=14, decimal_places=2)
+    current_amount   = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    target_date      = models.DateField(null=True)
+    monthly_contrib  = models.DecimalField(max_digits=12, decimal_places=2, null=True)
+    auto_contribute  = models.BooleanField(default=False)
+    status      = models.CharField(max_length=20, default='active')
+    created_at  = models.DateTimeField(auto_now_add=True)
+
+
+3.3.2 Bank Accounts & Transactions
+# apps/accounts/models.py
+
+
+class BankAccount(models.Model):
+    user           = models.ForeignKey(User, on_delete=models.CASCADE, related_name='bank_accounts')
+    mono_account_id= models.CharField(max_length=100, unique=True)  # Mono's ID
+    institution    = models.CharField(max_length=100)  # 'GTBank', 'Access', etc.
+    account_name   = models.CharField(max_length=200)
+    account_number = models.CharField(max_length=20)  # masked: ****1234
+    account_type   = models.CharField(max_length=50)   # savings/current
+    currency       = models.CharField(max_length=5, default='NGN')
+    balance        = models.DecimalField(max_digits=16, decimal_places=2, default=0)
+    balance_updated= models.DateTimeField(null=True)
+    is_active      = models.BooleanField(default=True)
+    linked_at      = models.DateTimeField(auto_now_add=True)
+
+
+
+
+# apps/transactions/models.py
+
+
+class Transaction(models.Model):
+    TYPES = [('credit','Credit'),('debit','Debit')]
+    CATEGORIES = [
+        ('food','Food & Dining'), ('transport','Transport'),
+        ('utilities','Utilities'), ('entertainment','Entertainment'),
+        ('health','Healthcare'), ('education','Education'),
+        ('investment','Investment'), ('savings','Savings'),
+        ('income','Income'), ('transfer','Transfer'),
+        ('subscription','Subscriptions'), ('other','Other'),
+    ]
+
+
+    account      = models.ForeignKey(BankAccount, on_delete=models.CASCADE)
+    mono_id      = models.CharField(max_length=100, unique=True)
+    amount       = models.DecimalField(max_digits=14, decimal_places=2)
+    type         = models.CharField(max_length=10, choices=TYPES)
+    description  = models.CharField(max_length=500)
+    category     = models.CharField(max_length=50, choices=CATEGORIES, blank=True)
+    ai_category  = models.CharField(max_length=50, blank=True)  # AI-assigned
+    ai_confidence= models.FloatField(default=0.0)
+    merchant     = models.CharField(max_length=200, blank=True)
+    date         = models.DateField()
+    balance      = models.DecimalField(max_digits=14, decimal_places=2)  # running balance
+    is_flagged   = models.BooleanField(default=False)  # behavioral coach flag
+    flag_reason  = models.CharField(max_length=200, blank=True)
+    created_at   = models.DateTimeField(auto_now_add=True)
+
+
+3.3.3 Investments & Opportunities
+# apps/investments/models.py
+
+
+class Portfolio(models.Model):
+    user         = models.ForeignKey(User, on_delete=models.CASCADE)
+    name         = models.CharField(max_length=100, default='My Portfolio')
+    total_value  = models.DecimalField(max_digits=16, decimal_places=2, default=0)
+    currency     = models.CharField(max_length=5, default='NGN')
+    risk_score   = models.FloatField(null=True)  # 0-10, updated by Risk Assessor
+    updated_at   = models.DateTimeField(auto_now=True)
+
+
+class PortfolioHolding(models.Model):
+    ASSET_TYPES = [
+        ('ngx_stock','NGX Stock'),('us_stock','US Stock'),
+        ('mutual_fund','Mutual Fund'),('tbill','Treasury Bill'),
+        ('bond','Bond'),('etf','ETF'),('crypto','Crypto'),
+        ('real_estate','Real Estate'),('cash','Cash'),
+    ]
+    portfolio    = models.ForeignKey(Portfolio, on_delete=models.CASCADE, related_name='holdings')
+    asset_type   = models.CharField(max_length=30, choices=ASSET_TYPES)
+    symbol       = models.CharField(max_length=20, blank=True)  # e.g. MTNN, AAPL
+    name         = models.CharField(max_length=200)
+    units        = models.DecimalField(max_digits=16, decimal_places=6, default=0)
+    avg_cost     = models.DecimalField(max_digits=14, decimal_places=4, default=0)
+    current_price= models.DecimalField(max_digits=14, decimal_places=4, default=0)
+    current_value= models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    pnl          = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    pnl_pct      = models.FloatField(default=0.0)
+    updated_at   = models.DateTimeField(auto_now=True)
+
+
+
+
+# apps/opportunities/models.py
+
+
+class Opportunity(models.Model):
+    TYPES = [
+        ('grant','Grant'),('investment','Investment Product'),
+        ('ipo','IPO / New Listing'),('side_income','Side Income'),
+        ('real_estate','Real Estate'),('job','Job / Contract'),
+        ('tbill','Treasury Bill Rate'),('promo','Bank Promo'),
+    ]
+    user         = models.ForeignKey(User, on_delete=models.CASCADE)
+    opp_type     = models.CharField(max_length=30, choices=TYPES)
+    title        = models.CharField(max_length=300)
+    description  = models.TextField()
+    source_url   = models.URLField(blank=True)
+    match_score  = models.FloatField()          # 0-100 AI relevance score
+    urgency_score= models.FloatField(default=0) # 0-100 time sensitivity
+    deadline     = models.DateField(null=True)
+    estimated_value = models.DecimalField(max_digits=14, decimal_places=2, null=True)
+    is_actioned  = models.BooleanField(default=False)
+    is_dismissed = models.BooleanField(default=False)
+    scout_run_at = models.DateTimeField(auto_now_add=True)
+
+
+4. AI Agent Architecture
+4.1 Base Agent Class
+# agents/base_agent.py
+
+
+from abc import ABC, abstractmethod
+from typing import Any, Dict, Optional
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from langchain.memory import ConversationSummaryBufferMemory
+from core.llm_factory import get_llm
+from apps.users.models import FinancialDNA
+
+
+class BaseAgent(ABC):
+    """Abstract base for all NairaSage specialist agents."""
+
+
+    agent_name: str = 'base'
+    system_prompt: str = ''
+
+
+    def __init__(self, user_id: int):
+        self.user_id  = user_id
+        self.llm      = get_llm()
+        self.dna      = FinancialDNA.objects.select_related('user').get(user_id=user_id)
+        self.memory   = self._load_memory()
+
+
+    def _load_memory(self) -> ConversationSummaryBufferMemory:
+        """Load agent-specific conversation memory from Financial DNA store."""
+        mem = ConversationSummaryBufferMemory(
+            llm=self.llm,
+            max_token_limit=2000,
+            return_messages=True,
+        )
+        # Restore saved summary from DNA if it exists
+        saved = self.dna.agent_memory.get(self.agent_name, {})
+        if saved.get('summary'):
+            mem.moving_summary_buffer = saved['summary']
+        return mem
+
+
+    def _save_memory(self):
+        """Persist memory summary back to Financial DNA."""
+        self.dna.agent_memory[self.agent_name] = {
+            'summary': self.memory.moving_summary_buffer
+        }
+        self.dna.save(update_fields=['agent_memory', 'updated_at'])
+
+
+    def _get_dna_context(self) -> str:
+        """Serialize relevant DNA fields as context for the system prompt."""
+        return (
+            f'User profile: income={self.dna.monthly_income} NGN/month, '
+            f'risk_tolerance={self.dna.risk_tolerance}, '
+            f'goal={self.dna.primary_goal}, '
+            f'literacy_score={self.dna.financial_literacy_score}/100.'
+        )
+
+
+    def build_messages(self, user_input: str) -> list:
+        history = self.memory.load_memory_variables({}).get('history', [])
+        return [
+            SystemMessage(content=self.system_prompt + '\n\n' + self._get_dna_context()),
+            *history,
+            HumanMessage(content=user_input),
+        ]
+
+
+    @abstractmethod
+    def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute the agent. Return structured result dict."""
+        pass
+
+
+    def chat(self, user_input: str) -> str:
+        """Standard chat interface with memory persistence."""
+        messages = self.build_messages(user_input)
+        response = self.llm.invoke(messages)
+        self.memory.save_context({'input': user_input}, {'output': response.content})
+        self._save_memory()
+        return response.content
+
+
+4.2 Coordinator Agent (Master Orchestrator)
+# agents/coordinator.py
+
+
+from langgraph.graph import StateGraph, END
+from typing import TypedDict, Annotated, List
+from langchain_core.messages import BaseMessage
+import operator
+
+
+from .accountant.agent       import AccountantAgent
+from .economist.agent        import EconomistAgent
+from .investment_advisor.agent import InvestmentAdvisorAgent
+from .opportunity_scout.agent  import OpportunityScoutAgent
+from .tax_advisor.agent      import TaxAdvisorAgent
+from .behavioral_coach.agent import BehavioralCoachAgent
+from .debt_manager.agent     import DebtManagerAgent
+from .savings_optimizer.agent import SavingsOptimizerAgent
+from .risk_assessor.agent    import RiskAssessorAgent
+from .life_planner.agent     import LifePlannerAgent
+from .education.agent        import EducationAgent
+from core.llm_factory        import get_llm
+
+
+# ── Agent registry ────────────────────────────────────────
+AGENT_REGISTRY = {
+    'accountant':        AccountantAgent,
+    'economist':         EconomistAgent,
+    'investment_advisor':InvestmentAdvisorAgent,
+    'opportunity_scout': OpportunityScoutAgent,
+    'tax_advisor':       TaxAdvisorAgent,
+    'behavioral_coach':  BehavioralCoachAgent,
+    'debt_manager':      DebtManagerAgent,
+    'savings_optimizer': SavingsOptimizerAgent,
+    'risk_assessor':     RiskAssessorAgent,
+    'life_planner':      LifePlannerAgent,
+    'education':         EducationAgent,
+}
+
+
+ROUTING_PROMPT = '''
+You are the NairaSage coordinator. Given the user's message, decide which
+specialist agents should handle it. Return ONLY a JSON array of agent names.
+
+
+Available agents: accountant, economist, investment_advisor, opportunity_scout,
+tax_advisor, behavioral_coach, debt_manager, savings_optimizer,
+risk_assessor, life_planner, education
+
+
+Examples:
+  "how much did I spend on food?"   -> ["accountant"]
+  "should I buy MTNN stock?"         -> ["investment_advisor", "risk_assessor"]
+  "plan my retirement"               -> ["life_planner", "savings_optimizer", "risk_assessor"]
+  "I keep impulse spending"          -> ["behavioral_coach", "accountant"]
+  "what opportunities exist for me?" -> ["opportunity_scout"]
+  "how much tax do I owe?"           -> ["tax_advisor", "accountant"]
+'''
+
+
+class CoordinatorAgent:
+    def __init__(self, user_id: int):
+        self.user_id = user_id
+        self.llm     = get_llm(temperature=0.0)  # deterministic routing
+
+
+    def route(self, user_message: str) -> List[str]:
+        """Determine which agents to invoke for this message."""
+        import json
+        from langchain_core.messages import SystemMessage, HumanMessage
+        response = self.llm.invoke([
+            SystemMessage(content=ROUTING_PROMPT),
+            HumanMessage(content=user_message),
+        ])
+        try:
+            return json.loads(response.content)
+        except Exception:
+            return ['accountant']  # safe fallback
+
+
+    def dispatch(self, user_message: str) -> dict:
+        """Route to agents, run them, merge results."""
+        agents_needed = self.route(user_message)
+        results = {}
+        for agent_name in agents_needed:
+            AgentClass = AGENT_REGISTRY.get(agent_name)
+            if AgentClass:
+                agent = AgentClass(user_id=self.user_id)
+                results[agent_name] = agent.run({'query': user_message})
+
+
+        return self._synthesize(user_message, results)
+
+
+    def _synthesize(self, query: str, agent_results: dict) -> dict:
+        """Combine multi-agent results into unified response."""
+        from langchain_core.messages import SystemMessage, HumanMessage
+        context = '\n\n'.join([
+            f'[{name}]: {result.get("summary","")}' 
+            for name, result in agent_results.items()
+        ])
+        synthesis = self.llm.invoke([
+            SystemMessage(content='Synthesize these specialist agent reports into a single, clear, actionable response for the user. Be concise and Nigerian-context aware.'),
+            HumanMessage(content=f'User asked: {query}\n\nAgent reports:\n{context}'),
+        ])
+        return {
+            'response': synthesis.content,
+            'agents_used': list(agent_results.keys()),
+            'raw': agent_results,
+        }
+
+
+4.3 Sample Specialist Agent — Accountant
+# agents/accountant/agent.py
+
+
+from agents.base_agent import BaseAgent
+from apps.transactions.models import Transaction
+from apps.accounts.models import BankAccount
+from langchain.tools import tool
+from langchain.agents import create_tool_calling_agent, AgentExecutor
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+import pandas as pd
+from datetime import date, timedelta
+
+
+class AccountantAgent(BaseAgent):
+    agent_name = 'accountant'
+    system_prompt = '''
+    You are a Nigerian personal accountant and financial analyst.
+    You have direct access to the user's real transaction data.
+    Always cite specific numbers from their actual data.
+    Speak in clear, plain English. Use NGN for amounts.
+    Flag unusual patterns, recurring charges, and waste.
+    '''
+
+
+    def run(self, input_data: dict) -> dict:
+        query = input_data.get('query', '')
+
+
+        # Fetch 90 days of user transactions
+        txns = Transaction.objects.filter(
+            account__user_id=self.user_id,
+            date__gte=date.today() - timedelta(days=90)
+        ).values('amount','type','category','description','date','merchant')
+
+
+        df = pd.DataFrame(list(txns))
+        summary = self._build_summary(df)
+
+
+        prompt = f'''
+        Transaction summary (last 90 days):\n{summary}\n\n
+        User query: {query}
+        '''
+        response = self.chat(prompt)
+        return {'summary': response, 'data': summary}
+
+
+    def _build_summary(self, df: pd.DataFrame) -> str:
+        if df.empty:
+            return 'No transactions found.'
+        credits = df[df['type']=='credit']['amount'].sum()
+        debits  = df[df['type']=='debit']['amount'].sum()
+        by_cat  = df[df['type']=='debit'].groupby('category')['amount'].sum().to_dict()
+        return (
+            f'Total income: NGN {credits:,.2f}\n'
+            f'Total spending: NGN {debits:,.2f}\n'
+            f'By category: {by_cat}'
+        )
+
+
+4.4 Opportunity Scout (Background Agent)
+# agents/opportunity_scout/agent.py
+
+
+from agents.base_agent import BaseAgent
+from langchain_community.tools import DuckDuckGoSearchRun
+from langchain.agents import create_react_agent, AgentExecutor
+from langchain_core.prompts import PromptTemplate
+from apps.opportunities.models import Opportunity
+from apps.users.models import FinancialDNA
+
+
+SCOUT_PROMPT = PromptTemplate.from_template('''
+You are NairaSage's Opportunity Scout. Your job is to find real, current
+financial opportunities for this Nigerian user based on their profile.
+
+
+User profile:
+{dna_context}
+
+
+Search for:
+1. Government grants or CBN programs matching their profile
+2. New high-yield investment products (T-bills, money market funds)
+3. NGX IPOs or newly listed stocks
+4. Side income opportunities matching their skills
+5. Real estate or agro-investment deals within their budget
+
+
+For each opportunity found: title, description, source URL, estimated value,
+deadline (if any), and a match score 0-100 based on user profile.
+
+
+Respond in JSON array format.
+
+
+Tools available: {tools}
+Tool names: {tool_names}
+{agent_scratchpad}
+''')
+
+
+class OpportunityScoutAgent(BaseAgent):
+    agent_name = 'opportunity_scout'
+
+
+    def run(self, input_data: dict) -> dict:
+        search_tool = DuckDuckGoSearchRun()
+        agent = create_react_agent(self.llm, [search_tool], SCOUT_PROMPT)
+        executor = AgentExecutor(agent=agent, tools=[search_tool],
+                                  verbose=False, max_iterations=8)
+        result = executor.invoke({
+            'dna_context': self._get_dna_context(),
+        })
+        return self._save_opportunities(result['output'])
+
+
+    def _save_opportunities(self, raw_output: str) -> dict:
+        import json
+        try:
+            opps = json.loads(raw_output)
+            saved = []
+            for o in opps:
+                obj, created = Opportunity.objects.update_or_create(
+                    user_id=self.user_id,
+                    title=o.get('title',''),
+                    defaults={
+                        'opp_type':     o.get('type','investment'),
+                        'description':  o.get('description',''),
+                        'source_url':   o.get('url',''),
+                        'match_score':  o.get('match_score', 50),
+                        'urgency_score':o.get('urgency', 0),
+                    }
+                )
+                if created: saved.append(obj.title)
+            return {'summary': f'{len(saved)} new opportunities found.', 'saved': saved}
+        except Exception as e:
+            return {'summary': 'Scout run complete.', 'error': str(e)}
+
+
+5. REST API Endpoints
+5.1 Authentication
+
+Method
+Endpoint
+Description
+Auth
+POST
+/api/auth/register/
+Register new user (email + password)
+Public
+POST
+/api/auth/login/
+Obtain JWT access + refresh tokens
+Public
+POST
+/api/auth/token/refresh/
+Refresh JWT access token
+Public
+POST
+/api/auth/logout/
+Blacklist refresh token
+JWT
+POST
+/api/auth/bvn/verify/
+Initiate BVN verification via Mono
+JWT
+GET
+/api/auth/me/
+Get current user profile
+JWT
+PATCH
+/api/auth/me/
+Update profile / preferences
+JWT
+
+
+5.2 Financial DNA & Onboarding
+Method
+Endpoint
+Description
+Auth
+GET
+/api/dna/
+Get user's Financial DNA profile
+JWT
+PATCH
+/api/dna/
+Update DNA fields (goals, risk, etc.)
+JWT
+POST
+/api/dna/onboard/
+Complete onboarding wizard (multi-step)
+JWT
+GET
+/api/dna/networth/
+Real-time net worth calculation
+JWT
+
+
+5.3 Bank Accounts (Mono Integration)
+Method
+Endpoint
+Description
+Auth
+GET
+/api/accounts/
+List all linked bank accounts
+JWT
+POST
+/api/accounts/link/
+Exchange Mono auth code for account link
+JWT
+DELETE
+/api/accounts/{id}/unlink/
+Unlink a bank account
+JWT
+POST
+/api/accounts/{id}/sync/
+Force-sync latest transactions from Mono
+JWT
+GET
+/api/accounts/{id}/balance/
+Get real-time balance
+JWT
+
+
+5.4 Transactions
+Method
+Endpoint
+Description
+Auth
+GET
+/api/transactions/
+List transactions (paginated, filterable)
+JWT
+GET
+/api/transactions/summary/
+Spending summary by category & period
+JWT
+PATCH
+/api/transactions/{id}/
+Override AI category / add note
+JWT
+GET
+/api/transactions/trends/
+Month-over-month spending trends
+JWT
+
+
+5.5 AI Agent Endpoints
+Method
+Endpoint
+Description
+Auth
+POST
+/api/agent/chat/
+Send message to Coordinator — auto-routes to specialist agents
+JWT
+POST
+/api/agent/accountant/
+Direct message to Accountant agent
+JWT
+POST
+/api/agent/investment-advisor/
+Direct message to Investment Advisor
+JWT
+POST
+/api/agent/tax-advisor/
+Direct message to Tax Advisor
+JWT
+POST
+/api/agent/behavioral-coach/
+Direct message to Behavioral Coach
+JWT
+POST
+/api/agent/life-planner/
+Direct message to Life Planner
+JWT
+POST
+/api/agent/scenario/
+Run a scenario simulation
+JWT
+GET
+/api/agent/history/{agent}/
+Get conversation history for an agent
+JWT
+DELETE
+/api/agent/history/{agent}/
+Clear agent conversation memory
+JWT
+
+
+5.6 Investments, Goals, Opportunities
+Method
+Endpoint
+Description
+Auth
+GET
+/api/portfolio/
+Get portfolio with all holdings & P&L
+JWT
+POST
+/api/portfolio/holdings/
+Add a holding manually
+JWT
+GET
+/api/market/ngx/{symbol}/
+Get NGX stock price & data
+JWT
+GET
+/api/market/fx/
+Get current NGN/USD/GBP/EUR rates
+JWT
+GET
+/api/goals/
+List all savings goals
+JWT
+POST
+/api/goals/
+Create a new savings goal
+JWT
+PATCH
+/api/goals/{id}/
+Update goal progress
+JWT
+GET
+/api/opportunities/
+List scout results for user
+JWT
+POST
+/api/opportunities/{id}/action/
+Mark opportunity actioned / dismissed
+JWT
+GET
+/api/debt/
+List debts with payoff strategy
+JWT
+POST
+/api/debt/
+Add a debt
+JWT
+
+
+5.7 Billing (Paystack)
+Method
+Endpoint
+Description
+Auth
+GET
+/api/billing/plans/
+List subscription plans & pricing
+Public
+POST
+/api/billing/subscribe/
+Initiate Paystack payment for subscription
+JWT
+GET
+/api/billing/status/
+Get current subscription status
+JWT
+POST
+/api/billing/cancel/
+Cancel subscription
+JWT
+POST
+/api/billing/webhook/
+Paystack webhook handler
+Public+sig
+
+
+6. Background Tasks — Django-RQ
+6.1 Queue Architecture
+Django-RQ uses Redis as the message broker. Three queues handle priority separation: high (user-triggered, time-sensitive), default (standard async jobs), and low (batch operations, cron scouts).
+
+# config/settings/base.py — RQ config
+RQ_QUEUES = {
+    'high':    {'USE_REDIS_CACHE': 'default'},  # user-triggered actions
+    'default': {'USE_REDIS_CACHE': 'default'},  # standard async
+    'low':     {'USE_REDIS_CACHE': 'default'},  # scouts, batch, cron
+}
+
+
+# Start worker (run in separate process / Railway worker dyno):
+# python manage.py rqworker high default low
+
+
+# Start scheduler (for cron tasks):
+# python manage.py rqscheduler
+
+
+6.2 Task Definitions
+# tasks/sync_tasks.py
+
+
+import django_rq
+from integrations.mono.client import MonoClient
+from apps.accounts.models import BankAccount
+from apps.transactions.models import Transaction
+
+
+@django_rq.job('default')
+def sync_account_transactions(account_id: int):
+    """Pull latest transactions from Mono for one account."""
+    account = BankAccount.objects.get(id=account_id)
+    client  = MonoClient()
+    txns    = client.get_transactions(account.mono_account_id, limit=100)
+    for t in txns:
+        Transaction.objects.update_or_create(
+            mono_id=t['_id'],
+            defaults={
+                'account':     account,
+                'amount':      abs(t['amount']) / 100,  # Mono returns kobo
+                'type':        'credit' if t['amount'] > 0 else 'debit',
+                'description': t.get('narration',''),
+                'date':        t['date'][:10],
+                'balance':     t.get('balance',0) / 100,
+            }
+        )
+    # Enqueue AI categorization after sync
+    categorize_uncategorized.delay(account.user_id)
+
+
+
+
+@django_rq.job('default')
+def categorize_uncategorized(user_id: int):
+    """Run Accountant agent to categorize new transactions."""
+    from agents.accountant.agent import AccountantAgent
+    agent = AccountantAgent(user_id=user_id)
+    agent.run({'query': 'Categorize all uncategorized transactions.'})
+
+
+
+
+# tasks/scout_tasks.py
+
+
+@django_rq.job('low')
+def run_opportunity_scout(user_id: int):
+    """Run the Opportunity Scout for one user — called by scheduler."""
+    from agents.opportunity_scout.agent import OpportunityScoutAgent
+    agent = OpportunityScoutAgent(user_id=user_id)
+    result = agent.run({})
+    if result.get('saved'):
+        from tasks.alert_tasks import send_opportunity_alert
+        send_opportunity_alert.delay(user_id, result['saved'])
+
+
+
+
+@django_rq.job('low')
+def run_behavioral_check(user_id: int):
+    """Nightly behavioral analysis — flag patterns in recent transactions."""
+    from agents.behavioral_coach.agent import BehavioralCoachAgent
+    agent = BehavioralCoachAgent(user_id=user_id)
+    agent.run({'query': 'Analyze last 7 days for behavioral red flags.'})
+
+
+
+
+# tasks/market_tasks.py
+
+
+@django_rq.job('default')
+def refresh_portfolio_prices(user_id: int):
+    """Update current prices for all portfolio holdings."""
+    from integrations.ngx.client import NGXClient
+    from apps.investments.models import PortfolioHolding
+    client   = NGXClient()
+    holdings = PortfolioHolding.objects.filter(
+        portfolio__user_id=user_id,
+        asset_type='ngx_stock'
+    )
+    for h in holdings:
+        price = client.get_price(h.symbol)
+        if price:
+            h.current_price = price
+            h.current_value = price * h.units
+            h.pnl           = h.current_value - (h.avg_cost * h.units)
+            h.save()
+
+
+6.3 Cron Schedule (rq-scheduler)
+# tasks/scheduler.py — run once at startup or via management command
+
+
+from django_rq import get_scheduler
+from datetime import datetime, timedelta
+
+
+def setup_scheduled_tasks():
+    scheduler = get_scheduler('low')
+
+
+    # Clear existing jobs to avoid duplicates on restart
+    for job in scheduler.get_jobs():
+        job.delete()
+
+
+    # ── Sync all accounts every 4 hours ─────────────────────
+    scheduler.schedule(
+        scheduled_time=datetime.utcnow(),
+        func='tasks.sync_tasks.sync_all_active_accounts',
+        interval=4 * 3600,
+        repeat=None,  # infinite
+    )
+
+
+    # ── Opportunity Scout — runs once daily at 06:00 WAT ─────
+    scheduler.cron(
+        '0 5 * * *',  # 05:00 UTC = 06:00 WAT
+        func='tasks.scout_tasks.scout_all_active_users',
+        queue_name='low',
+    )
+
+
+    # ── Behavioral check — nightly at 22:00 WAT ──────────────
+    scheduler.cron(
+        '0 21 * * *',
+        func='tasks.scout_tasks.behavioral_check_all_users',
+        queue_name='low',
+    )
+
+
+    # ── Market data refresh every 30 mins (trading hours) ────
+    scheduler.cron(
+        '*/30 9-17 * * 1-5',  # every 30 min, 9am-5pm, Mon-Fri
+        func='tasks.market_tasks.refresh_all_portfolios',
+        queue_name='default',
+    )
+
+
+    # ── FX rates — every 15 minutes ──────────────────────────
+    scheduler.schedule(
+        scheduled_time=datetime.utcnow(),
+        func='tasks.market_tasks.refresh_fx_rates',
+        interval=900,
+        repeat=None,
+    )
+
+
+7. Third-Party API Integrations
+7.1 Mono (Open Banking)
+# integrations/mono/client.py
+
+
+import httpx, os
+from typing import Optional
+
+
+class MonoClient:
+    BASE_URL = 'https://api.withmono.com/v2'
+
+
+    def __init__(self):
+        self.api_key = os.getenv('MONO_SECRET_KEY')
+        self.headers = {
+            'mono-sec-key': self.api_key,
+            'Content-Type': 'application/json',
+        }
+
+
+    def exchange_token(self, code: str) -> dict:
+        """Exchange Mono Connect auth code for account ID."""
+        r = httpx.post(f'{self.BASE_URL}/accounts/auth',
+            headers=self.headers, json={'code': code})
+        r.raise_for_status()
+        return r.json()  # {'id': 'account_id', ...}
+
+
+    def get_account(self, account_id: str) -> dict:
+        r = httpx.get(f'{self.BASE_URL}/accounts/{account_id}',
+            headers=self.headers)
+        r.raise_for_status()
+        return r.json()
+
+
+    def get_transactions(self, account_id: str, limit: int = 100) -> list:
+        r = httpx.get(f'{self.BASE_URL}/accounts/{account_id}/transactions',
+            headers=self.headers, params={'limit': limit})
+        r.raise_for_status()
+        return r.json().get('data', [])
+
+
+    def get_balance(self, account_id: str) -> Optional[float]:
+        data = self.get_account(account_id)
+        return data.get('account', {}).get('balance')
+
+
+    def verify_bvn(self, bvn: str) -> dict:
+        r = httpx.post(f'{self.BASE_URL}/v1/identity/bvn/verify',
+            headers=self.headers, json={'bvn': bvn})
+        r.raise_for_status()
+        return r.json()
+
+
+7.2 Paystack (Billing)
+# integrations/paystack/client.py
+
+
+import httpx, os, hmac, hashlib
+
+
+class PaystackClient:
+    BASE_URL = 'https://api.paystack.co'
+
+
+    def __init__(self):
+        self.secret = os.getenv('PAYSTACK_SECRET_KEY')
+        self.headers = {
+            'Authorization': f'Bearer {self.secret}',
+            'Content-Type': 'application/json',
+        }
+
+
+    def initialize_transaction(self, email: str, amount_kobo: int,
+                                plan_code: str = None) -> dict:
+        payload = {'email': email, 'amount': amount_kobo}
+        if plan_code: payload['plan'] = plan_code
+        r = httpx.post(f'{self.BASE_URL}/transaction/initialize',
+            headers=self.headers, json=payload)
+        r.raise_for_status()
+        return r.json()  # {'authorization_url': '...', 'reference': '...'}
+
+
+    def verify_transaction(self, reference: str) -> dict:
+        r = httpx.get(f'{self.BASE_URL}/transaction/verify/{reference}',
+            headers=self.headers)
+        r.raise_for_status()
+        return r.json()
+
+
+    def verify_webhook(self, payload: bytes, signature: str) -> bool:
+        """Validate Paystack webhook HMAC-SHA512 signature."""
+        computed = hmac.new(
+            self.secret.encode(), payload, hashlib.sha512
+        ).hexdigest()
+        return hmac.compare_digest(computed, signature)
+
+
+7.3 NGX Market Data
+# integrations/ngx/client.py
+
+
+import httpx, os
+from django.core.cache import cache
+
+
+class NGXClient:
+    """NGX Market Data API — or iTick as MVP fallback."""
+    BASE_URL = os.getenv('NGX_API_URL', 'https://marketdataapiv3.ngxgroup.com/api')
+
+
+    def __init__(self):
+        self.api_key = os.getenv('NGX_API_KEY')
+        self.headers = {'Authorization': f'Bearer {self.api_key}'}
+
+
+    def get_price(self, symbol: str) -> float | None:
+        cache_key = f'ngx_price_{symbol}'
+        cached = cache.get(cache_key)
+        if cached: return cached
+
+
+        try:
+            r = httpx.get(f'{self.BASE_URL}/prices/{symbol}',
+                headers=self.headers, timeout=10)
+            r.raise_for_status()
+            price = r.json().get('close')
+            cache.set(cache_key, price, timeout=1800)  # 30 min cache
+            return price
+        except Exception:
+            return None
+
+
+    def get_market_summary(self) -> dict:
+        cache_key = 'ngx_market_summary'
+        cached = cache.get(cache_key)
+        if cached: return cached
+        r = httpx.get(f'{self.BASE_URL}/market/summary', headers=self.headers)
+        data = r.json()
+        cache.set(cache_key, data, timeout=900)
+        return data
+
+
+7.4 FX Rates (Fixer.io)
+# integrations/fixer/client.py
+
+
+import httpx, os
+from django.core.cache import cache
+
+
+class FixerClient:
+    BASE_URL = 'https://data.fixer.io/api'
+
+
+    def __init__(self):
+        self.key = os.getenv('FIXER_API_KEY')
+
+
+    def get_rates(self, base: str = 'NGN',
+                  symbols: list = ['USD','GBP','EUR']) -> dict:
+        cache_key = f'fx_{base}_{"-".join(symbols)}'
+        cached = cache.get(cache_key)
+        if cached: return cached
+
+
+        r = httpx.get(f'{self.BASE_URL}/latest', params={
+            'access_key': self.key,
+            'base': base,
+            'symbols': ','.join(symbols),
+        })
+        data = r.json().get('rates', {})
+        cache.set(cache_key, data, timeout=900)  # 15-min cache
+        return data
+
+
+8. Frontend — Next.js 14 (TypeScript)
+8.1 Key Dependencies
+// package.json — key dependencies
+
+
+// ── Framework ─────────────────────────────────────────────
+"next": "^14.2.3",
+"react": "^18.3.1",
+"typescript": "^5.4.5",
+
+
+// ── UI ────────────────────────────────────────────────────
+"tailwindcss": "^3.4.3",
+"@shadcn/ui": "latest",             // component library
+"lucide-react": "^0.379.0",         // icons
+"class-variance-authority": "^0.7.0",
+"clsx": "^2.1.1",
+
+
+// ── Data Fetching & State ─────────────────────────────────
+"@tanstack/react-query": "^5.40.0",  // server state
+"zustand": "^4.5.2",                // client state
+"axios": "^1.7.2",                  // HTTP client
+
+
+// ── Forms ────────────────────────────────────────────────
+"react-hook-form": "^7.52.0",
+"zod": "^3.23.8",                   // schema validation
+"@hookform/resolvers": "^3.6.0",
+
+
+// ── Charts ───────────────────────────────────────────────
+"recharts": "^2.12.6",
+"@tremor/react": "^3.18.1",         // financial dashboard components
+
+
+// ── Auth ─────────────────────────────────────────────────
+"next-auth": "^4.24.7",
+
+
+// ── Other ────────────────────────────────────────────────
+"date-fns": "^3.6.0",
+"numeral": "^2.0.6",               // Nigerian number formatting
+"@mono.co/connect": "^2.0.0",      // Mono Connect widget
+
+
+8.2 API Client (lib/api.ts)
+// lib/api.ts
+
+
+import axios, { AxiosInstance, AxiosError } from 'axios';
+import { getSession } from 'next-auth/react';
+
+
+const api: AxiosInstance = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
+  timeout: 30000,
+  headers: { 'Content-Type': 'application/json' },
+});
+
+
+// Attach JWT token to every request
+api.interceptors.request.use(async (config) => {
+  const session = await getSession();
+  if (session?.accessToken) {
+    config.headers.Authorization = `Bearer ${session.accessToken}`;
+  }
+  return config;
+});
+
+
+// Handle 401 — refresh token or redirect to login
+api.interceptors.response.use(
+  (res) => res,
+  async (error: AxiosError) => {
+    if (error.response?.status === 401) {
+      // NextAuth handles token refresh automatically
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
+
+
+export default api;
+
+
+// ── Typed API helpers ─────────────────────────────────────
+export const agentAPI = {
+  chat:             (msg: string) =>
+    api.post<AgentResponse>('/api/agent/chat/', { message: msg }),
+  chatWithAgent:    (agent: string, msg: string) =>
+    api.post<AgentResponse>(`/api/agent/${agent}/`, { message: msg }),
+  getHistory:       (agent: string) =>
+    api.get<ChatMessage[]>(`/api/agent/history/${agent}/`),
+};
+
+
+export const accountsAPI = {
+  list:             () => api.get<BankAccount[]>('/api/accounts/'),
+  linkAccount:      (code: string) =>
+    api.post('/api/accounts/link/', { code }),
+  syncAccount:      (id: number) =>
+    api.post(`/api/accounts/${id}/sync/`),
+};
+
+
+export const transactionsAPI = {
+  list:             (params?: TxnFilters) =>
+    api.get<PaginatedResponse<Transaction>>('/api/transactions/', { params }),
+  summary:          (period: string) =>
+    api.get<TxnSummary>('/api/transactions/summary/', { params: { period } }),
+};
+
+
+8.3 TypeScript Types (types/index.ts)
+// types/index.ts
+
+
+export interface User {
+  id: number;
+  email: string;
+  firstName: string;
+  lastName: string;
+  tier: 'free' | 'pro' | 'elite';
+  bvnVerified: boolean;
+  onboarded: boolean;
+}
+
+
+export interface FinancialDNA {
+  primaryGoal: string;
+  monthlyIncome: number;
+  riskTolerance: 'conservative' | 'moderate' | 'aggressive';
+  financialLiteracyScore: number;
+  impulseSpendScore: number;
+  fomoSensitivityScore: number;
+  savingsDiscipline: number;
+}
+
+
+export interface BankAccount {
+  id: number;
+  institution: string;
+  accountNumber: string;  // masked
+  accountType: string;
+  balance: number;
+  currency: string;
+  balanceUpdated: string;
+}
+
+
+export interface Transaction {
+  id: number;
+  amount: number;
+  type: 'credit' | 'debit';
+  description: string;
+  category: string;
+  aiCategory: string;
+  merchant: string;
+  date: string;
+  isFlagged: boolean;
+}
+
+
+export interface AgentResponse {
+  response: string;
+  agentsUsed: string[];
+  raw?: Record<string, unknown>;
+}
+
+
+export interface Opportunity {
+  id: number;
+  oppType: string;
+  title: string;
+  description: string;
+  matchScore: number;
+  urgencyScore: number;
+  deadline: string | null;
+  estimatedValue: number | null;
+  isActioned: boolean;
+}
+
+
+export interface PaginatedResponse<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
+
+
+8.4 Route Structure & Page Map
+
+Route
+Component
+Notes
+/
+app/(marketing)/page.tsx
+Public landing page — SEO optimized
+/pricing
+app/(marketing)/pricing/page.tsx
+Plans comparison
+/login
+app/(auth)/login/page.tsx
+JWT auth via Django backend
+/register
+app/(auth)/register/page.tsx
+Multi-step signup
+/onboard
+app/(auth)/onboard/page.tsx
+Financial DNA setup wizard
+/dashboard
+app/(dashboard)/page.tsx
+Main overview: net worth, summary cards
+/dashboard/accounts
+app/(dashboard)/accounts/page.tsx
+Linked banks + link new
+/dashboard/transactions
+app/(dashboard)/transactions/page.tsx
+Filterable transaction feed
+/dashboard/investments
+app/(dashboard)/investments/page.tsx
+Portfolio + market data
+/dashboard/goals
+app/(dashboard)/goals/page.tsx
+Savings goals tracker
+/dashboard/opportunities
+app/(dashboard)/opportunities/page.tsx
+Scout results + action cards
+/dashboard/tax
+app/(dashboard)/tax/page.tsx
+Tax tracker + FIRS deadlines
+/dashboard/debt
+app/(dashboard)/debt/page.tsx
+Debt list + payoff strategy
+/dashboard/scenarios
+app/(dashboard)/scenarios/page.tsx
+Life simulation war-gaming
+/dashboard/coach
+app/(dashboard)/coach/page.tsx
+Behavioral coach chat
+/dashboard/learn
+app/(dashboard)/learn/page.tsx
+Education modules
+/dashboard/settings
+app/(dashboard)/settings/page.tsx
+Profile, notifications, billing
+
+
+9. Environment Variables Reference
+# .env.example — copy to .env and fill in all values
+
+
+# ── Django Core ─────────────────────────────────────────────
+DEBUG=True
+SECRET_KEY=your-super-secret-django-key-here
+ALLOWED_HOSTS=localhost,127.0.0.1,your-backend-domain.railway.app
+DJANGO_SETTINGS_MODULE=config.settings.development
+
+
+# ── Database ─────────────────────────────────────────────────
+DATABASE_URL=postgres://nairasage:password@localhost:5432/nairasage
+
+
+# ── Redis ────────────────────────────────────────────────────
+REDIS_URL=redis://localhost:6379/0
+
+
+# ── AI Provider (mistral | openai) ───────────────────────────
+LLM_PROVIDER=mistral
+MISTRAL_API_KEY=
+MISTRAL_MODEL=mistral-large-latest
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o
+LLM_TEMPERATURE=0.2
+LLM_MAX_TOKENS=4096
+
+
+# ── Open Banking ─────────────────────────────────────────────
+MONO_SECRET_KEY=
+MONO_PUBLIC_KEY=                          # used in frontend
+MONO_WEBHOOK_SECRET=
+
+
+# ── Stock / Market Data ──────────────────────────────────────
+NGX_API_KEY=                              # from marketdataapiv3.ngxgroup.com
+NGX_API_URL=https://marketdataapiv3.ngxgroup.com/api
+ITICK_API_KEY=                            # MVP fallback for NGX data
+
+
+# ── Payments ─────────────────────────────────────────────────
+PAYSTACK_SECRET_KEY=
+PAYSTACK_PUBLIC_KEY=                      # used in frontend
+
+
+# ── FX Rates ─────────────────────────────────────────────────
+FIXER_API_KEY=
+
+
+# ── Trade Execution ──────────────────────────────────────────
+BAMBOO_API_KEY=                           # from Bamboo B2B partnership
+BAMBOO_API_URL=
+
+
+# ── Email ────────────────────────────────────────────────────
+RESEND_API_KEY=
+DEFAULT_FROM_EMAIL=hello@nairasage.com
+
+
+# ── Storage ──────────────────────────────────────────────────
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+AWS_STORAGE_BUCKET_NAME=nairasage-media
+AWS_S3_REGION_NAME=af-south-1
+
+
+# ── Monitoring ───────────────────────────────────────────────
+SENTRY_DSN=
+
+
+# ────────────────────────────────────────────────────────────
+# FRONTEND (.env.local for Next.js)
+# ────────────────────────────────────────────────────────────
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_MONO_PUBLIC_KEY=
+NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY=
+NEXTAUTH_SECRET=your-nextauth-secret
+NEXTAUTH_URL=http://localhost:3000
+
+
+10. Local Development Setup
+10.1 Prerequisites
+Python 3.12+
+Node.js 20+
+Docker & Docker Compose (for Postgres + Redis)
+Git
+
+10.2 Backend Setup
+# 1. Clone the repository
+git clone https://github.com/yourusername/nairasage.git
+cd nairasage
+
+
+# 2. Start Postgres + Redis via Docker
+docker-compose up -d
+
+
+# docker-compose.yml provides:
+#   postgres:5432  — nairasage / password
+#   redis:6379
+
+
+# 3. Set up Python environment
+cd backend
+python -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+
+
+# 4. Configure environment
+cp ../.env.example .env
+# Edit .env — fill in at minimum: DATABASE_URL, REDIS_URL, LLM_PROVIDER, MISTRAL_API_KEY
+
+
+# 5. Run migrations
+python manage.py migrate
+
+
+# 6. Create superuser (optional)
+python manage.py createsuperuser
+
+
+# 7. Set up scheduled tasks
+python manage.py setup_scheduled_tasks
+
+
+# 8. Start Django dev server
+python manage.py runserver
+# API available at http://localhost:8000
+
+
+# 9. Start RQ worker (separate terminal)
+python manage.py rqworker high default low
+
+
+# 10. Start RQ scheduler (separate terminal)
+python manage.py rqscheduler
+
+
+10.3 Frontend Setup
+# In a new terminal from project root
+cd frontend
+npm install
+
+
+# Configure environment
+cp .env.example .env.local
+# Edit .env.local — set NEXT_PUBLIC_API_URL=http://localhost:8000
+
+
+# Start development server
+npm run dev
+# App available at http://localhost:3000
+
+
+# Type checking
+npm run type-check
+
+
+# Linting
+npm run lint
+
+
+11. Deployment
+11.1 Frontend — Vercel
+# Vercel deployment — automatic via GitHub integration
+
+
+# vercel.json (in frontend/)
+{
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "env": {
+    "NEXT_PUBLIC_API_URL":           "@nairasage_api_url",
+    "NEXT_PUBLIC_MONO_PUBLIC_KEY":    "@mono_public_key",
+    "NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY":"@paystack_public_key",
+    "NEXTAUTH_SECRET":               "@nextauth_secret",
+    "NEXTAUTH_URL":                  "@nextauth_url"
+  }
+}
+
+
+# Steps:
+# 1. Push frontend/ to GitHub
+# 2. Import project at vercel.com
+# 3. Set environment variables in Vercel dashboard
+# 4. Deploy — auto-deploys on every push to main
+
+
+11.2 Backend — Railway
+# railway.toml (in backend/)
+[build]
+builder = "NIXPACKS"
+
+
+[deploy]
+startCommand = "gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 4"
+healthcheckPath = "/api/health/"
+restartPolicyType = "ON_FAILURE"
+
+
+# railway.toml for RQ Worker (separate Railway service)
+[deploy]
+startCommand = "python manage.py rqworker high default low"
+
+
+# railway.toml for RQ Scheduler (separate Railway service)
+[deploy]
+startCommand = "python manage.py rqscheduler"
+
+
+# Railway automatically provisions:
+#   PostgreSQL (add via Railway dashboard → New → Database → PostgreSQL)
+#   Redis       (add via Railway dashboard → New → Database → Redis)
+# Both inject DATABASE_URL and REDIS_URL automatically.
+
+
+# Steps:
+# 1. Create Railway project
+# 2. Connect GitHub repo, set root to backend/
+# 3. Add PostgreSQL + Redis plugins
+# 4. Set all other env vars in Railway dashboard
+# 5. Create separate services for: web, rqworker, rqscheduler
+# 6. Deploy
+
+
+12. Security Checklist
+
+Item
+Implementation
+JWT Token Expiry
+Access token: 15 min. Refresh token: 7 days. Blacklist on logout (SimpleJWT).
+CORS
+corsheaders middleware. Whitelist Vercel frontend domain only.
+Rate Limiting
+django-axes on auth endpoints. DRF throttling: 100/hr anon, 1000/hr authenticated.
+Mono Webhooks
+Verify HMAC-SHA256 signature on every webhook before processing.
+Paystack Webhooks
+Verify HMAC-SHA512 signature. Idempotency keys prevent duplicate billing.
+SQL Injection
+Django ORM used exclusively. No raw SQL. Parameterized queries enforced.
+XSS
+Next.js escapes JSX by default. Content-Security-Policy header set.
+Sensitive Data
+Bank credentials never stored (Mono handles OAuth). Balances encrypted at rest.
+NDPA Compliance
+Explicit consent collected at signup. User can export/delete all data via settings.
+Secrets
+All keys in environment variables only. Never committed to Git. .env in .gitignore.
+HTTPS
+Enforced at hosting layer (Vercel + Railway). HSTS header enabled.
+Agent Output Safety
+All AI responses labeled 'not licensed financial advice'. High-risk actions require user confirmation.
+
+
+NairaSage Technical Document v1.0  —  David Samuel  —  April 2026  —  Confidential

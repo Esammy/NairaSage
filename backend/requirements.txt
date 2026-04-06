@@ -1,0 +1,36 @@
+# Windows: RQ 2.x fails at import (fork). Use rq<2 + django-rq<3 locally.
+# Linux production: prefer django-rq 4 + rq>=2.6 + rq-scheduler 0.14+.
+django
+djangorestframework
+djangorestframework-simplejwt
+django-cors-headers
+django-filter
+django-environ
+psycopg2-binary
+redis
+django-redis
+django-rq<3
+rq<2
+rq-scheduler<0.14
+async-timeout>=4,<5
+langchain
+langchain-core
+langchain-community
+langchain-mistralai
+langchain-openai
+langgraph
+httpx
+requests
+pandas
+numpy
+pydantic
+python-dateutil
+python-slugify
+Pillow
+cryptography
+django-axes
+gunicorn
+whitenoise
+django-storages
+boto3
+sentry-sdk
