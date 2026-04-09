@@ -8,7 +8,7 @@ from agents.opportunity_scout import prompts
 
 class OpportunityScoutAgent(BaseAgent):
     agent_name = "opportunity_scout"
-    system_prompt = prompts.SYSTEM
+    system_prompt = prompts.SYSTEM_PROMPT
 
     def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         q = (input_data.get("query") or "").strip()

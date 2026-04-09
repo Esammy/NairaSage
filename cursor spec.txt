@@ -7,7 +7,7 @@ Feed this document directly into Cursor AI as your project context
 Author
 David Samuel
 Stack
-Django 5 (Python) · Next.js 14 (TypeScript) · PostgreSQL · Redis
+Django 5 (Python) · Next.js latest (TypeScript) · PostgreSQL · Redis
 AI Layer
 LangChain · Mistral (default) / OpenAI (env-switchable) · LangGraph
 Tasks

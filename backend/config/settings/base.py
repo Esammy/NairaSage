@@ -9,8 +9,44 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 env = environ.Env()
 environ.Env.read_env(BASE_DIR / ".env")
 
-SECRET_KEY = env("SECRET_KEY", default="dev-insecure-change-me")
 DEBUG = env.bool("DEBUG", default=False)
+# Fail fast in production: never allow missing SECRET_KEY when DEBUG is off.
+if DEBUG:
+    SECRET_KEY = env("SECRET_KEY", default="dev-insecure-change-me")
+else:
+    SECRET_KEY = env("SECRET_KEY")
+
+# LLM keys (django-environ); llm_factory reads these via Django settings.
+LLM_PROVIDER = env("LLM_PROVIDER", default="mistral")
+LLM_TEMPERATURE = env.float("LLM_TEMPERATURE", default=0.2)
+LLM_MAX_TOKENS = env.int("LLM_MAX_TOKENS", default=4096)
+LLM_ROUTING_MAX_TOKENS = env.int("LLM_ROUTING_MAX_TOKENS", default=256)
+LLM_SYNTHESIS_MAX_TOKENS = env.int("LLM_SYNTHESIS_MAX_TOKENS", default=2048)
+LLM_SYNTHESIS_TEMPERATURE = env.float("LLM_SYNTHESIS_TEMPERATURE", default=0.2)
+MISTRAL_API_KEY = env("MISTRAL_API_KEY", default="")
+OPENAI_API_KEY = env("OPENAI_API_KEY", default="")
+GROQ_API_KEY = env("GROQ_API_KEY", default="")
+MISTRAL_MODEL = env("MISTRAL_MODEL", default="mistral-large-latest")
+OPENAI_MODEL = env("OPENAI_MODEL", default="gpt-4o")
+GROQ_MODEL = env("GROQ_MODEL", default="llama-3.3-70b-versatile")
+MISTRAL_ROUTING_MODEL = env("MISTRAL_ROUTING_MODEL", default="")
+OPENAI_ROUTING_MODEL = env("OPENAI_ROUTING_MODEL", default="")
+GROQ_ROUTING_MODEL = env("GROQ_ROUTING_MODEL", default="")
+
+FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:3000")
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="webmaster@localhost")
+EMAIL_VERIFICATION_PATH = env("EMAIL_VERIFICATION_PATH", default="/verify-email")
+
+# Paystack plan codes (subscription)
+PAYSTACK_SECRET_KEY = env("PAYSTACK_SECRET_KEY", default="")
+PAYSTACK_PUBLIC_KEY = env("PAYSTACK_PUBLIC_KEY", default="")
+PAYSTACK_PLAN_STARTER = env("PAYSTACK_PLAN_STARTER", default="")
+PAYSTACK_PLAN_PRO = env("PAYSTACK_PLAN_PRO", default="")
+PAYSTACK_PLAN_ELITE = env("PAYSTACK_PLAN_ELITE", default="")
+PAYSTACK_CALLBACK_URL = env(
+    "PAYSTACK_CALLBACK_URL",
+    default="http://localhost:3000/pricing?paid=1",
+)
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 
 INSTALLED_APPS = [
@@ -134,6 +170,7 @@ REST_FRAMEWORK = {
         "anon": "100/hour",
         "auth": "60/minute",
         "agent": "120/hour",
+        "password_reset": "10/hour",
     },
 }
 
@@ -148,6 +185,20 @@ CORS_ALLOWED_ORIGINS = env.list(
     "CORS_ALLOWED_ORIGINS",
     default=["http://localhost:3000"],
 )
+CSRF_TRUSTED_ORIGINS = env.list(
+    "CSRF_TRUSTED_ORIGINS",
+    default=CORS_ALLOWED_ORIGINS,
+)
+
+EMAIL_BACKEND = env(
+    "EMAIL_BACKEND",
+    default="django.core.mail.backends.console.EmailBackend",
+)
+EMAIL_HOST = env("EMAIL_HOST", default="localhost")
+EMAIL_PORT = env.int("EMAIL_PORT", default=587)
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "Africa/Lagos"

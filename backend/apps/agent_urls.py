@@ -6,6 +6,10 @@ urlpatterns = [
     path("chat/", agent_views.CoordinatorChatView.as_view()),
     path("chat/stream/", agent_views.CoordinatorChatStreamView.as_view()),
     path(
+        "conversations/",
+        agent_views.CoordinatorConversationListView.as_view(),
+    ),
+    path(
         "accountant/",
         agent_views.AgentDirectView.as_view(),
         {"agent": "accountant"},

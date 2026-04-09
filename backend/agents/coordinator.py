@@ -10,6 +10,11 @@ from django.db import close_old_connections
 from langchain_core.messages import AIMessageChunk, HumanMessage, SystemMessage
 
 from apps.users.models import FinancialDNA, SkillGapReport, SkillOutcome, User
+
+from agents.coordinator_prompts import ROUTING_SYSTEM_PROMPT, SYNTHESIS_SYSTEM_PROMPT
+from agents.disclaimer import LEGAL_DISCLAIMER
+from agents.prompt_utils import render_prompt
+from core.dna_context import dna_context_for_prompt
 from core.llm_factory import get_llm, get_routing_llm, get_synthesis_llm
 from core.utils import extract_json_object
 
@@ -28,43 +33,6 @@ AGENT_REGISTRY = {
     "life_planner": "agents.life_planner.agent.LifePlannerAgent",
     "education": "agents.education.agent.EducationAgent",
 }
-
-ROUTING_SYSTEM_PROMPT = """
-You are the NairaSage coordinator. Analyze the user's message and return
-ONLY a JSON object with two fields:
-  agents: array of agent names to call (1-3 agents max)
-  intent_bucket: a short snake_case label for this query type
-
-Available agents:
-  accountant         - spending, transactions, budgeting, cash flow
-  economist          - inflation, macro, Naira, CBN policy, FX
-  investment_advisor - stocks, portfolio, NGX, mutual funds, T-bills
-  opportunity_scout  - grants, deals, side income, IPOs
-  tax_advisor        - PAYE, self-assessment, FIRS, deductions
-  behavioral_coach   - impulse spending, habits, emotional decisions
-  debt_manager       - loans, repayment, interest rates
-  savings_optimizer  - goals, high-yield options, auto-save
-  risk_assessor      - portfolio risk, diversification, stress testing
-  life_planner       - retirement, house, long-term goals
-  education          - learning financial concepts, explanations
-
-Return ONLY valid JSON. No explanation.
-"""
-
-SYNTHESIS_PROMPT = """
-You are NairaSage, a personal financial co-pilot for Nigerians.
-Synthesize the specialist agent reports below into ONE clear, actionable response.
-Rules:
-- Write as if speaking directly to the user
-- Use Nigerian context (NGN, NGX, T-bills, CBN etc)
-- Be specific with numbers — never be vague
-- Calibrate complexity to user literacy score: {literacy_score}/100
-- End with one clear next action the user should take
-"""
-
-DISCLAIMER = (
-    "\n\n---\nNote: This is financial information, not licensed advice."
-)
 
 
 def _sse(event: str, payload: dict) -> str:
@@ -176,16 +144,25 @@ class CoordinatorAgent:
             f"[{name} report]: {r.get('summary', '')}" for name, r in results.items()
         )
         literacy = self.dna.financial_literacy_score
+        system_text = render_prompt(
+            SYNTHESIS_SYSTEM_PROMPT,
+            {"DNA_CONTEXT": dna_context_for_prompt(self.dna)},
+        )
         return [
-            SystemMessage(content=SYNTHESIS_PROMPT.format(literacy_score=literacy)),
-            HumanMessage(content=f"User asked: {query}\n\nAgent reports:\n{context}"),
+            SystemMessage(content=system_text),
+            HumanMessage(
+                content=(
+                    f"User financial literacy score (0-100): {literacy}\n\n"
+                    f"User asked: {query}\n\nAgent reports:\n{context}"
+                )
+            ),
         ]
 
     def _synthesize(self, query: str, results: dict) -> str:
         llm = get_synthesis_llm()
         response = llm.invoke(self._synthesis_messages(query, results))
         text = getattr(response, "content", str(response))
-        return text + DISCLAIMER
+        return text + LEGAL_DISCLAIMER
 
     def dispatch(self, message: str) -> Dict[str, Any]:
         start = time.time()
@@ -201,6 +178,7 @@ class CoordinatorAgent:
             intent_bucket=bucket,
             agents_called=agents,
             user_query=message[:500],
+            assistant_response=response_text,
             response_time_ms=elapsed,
         )
 
@@ -209,6 +187,14 @@ class CoordinatorAgent:
         ):
             self._flag_skill_gap(message, bucket)
 
+        logger.info(
+            "coordinator_dispatch user=%s intent=%s agents=%s outcome_id=%s ms=%s",
+            self.user_id,
+            bucket,
+            agents,
+            outcome.id,
+            elapsed,
+        )
         return {
             "response": response_text,
             "agents_used": agents,
@@ -244,8 +230,8 @@ class CoordinatorAgent:
             pieces.append(err)
             yield _sse("delta", {"text": err})
 
-        yield _sse("delta", {"text": DISCLAIMER})
-        full_response = "".join(pieces) + DISCLAIMER
+        yield _sse("delta", {"text": LEGAL_DISCLAIMER})
+        full_response = "".join(pieces) + LEGAL_DISCLAIMER
 
         elapsed = int((time.time() - start) * 1000)
         outcome = SkillOutcome.objects.create(
@@ -253,6 +239,7 @@ class CoordinatorAgent:
             intent_bucket=bucket,
             agents_called=agents,
             user_query=message[:500],
+            assistant_response=full_response,
             response_time_ms=elapsed,
         )
 
@@ -261,6 +248,14 @@ class CoordinatorAgent:
         ):
             self._flag_skill_gap(message, bucket)
 
+        logger.info(
+            "coordinator_stream_done user=%s intent=%s agents=%s outcome_id=%s ms=%s",
+            self.user_id,
+            bucket,
+            agents,
+            outcome.id,
+            elapsed,
+        )
         yield _sse(
             "done",
             {"outcome_id": outcome.id, "response_length": len(full_response)},

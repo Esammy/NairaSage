@@ -1,7 +1,8 @@
 import importlib
 
 from django.http import StreamingHttpResponse
-from rest_framework import status
+from rest_framework import permissions, status
+from rest_framework.generics import ListAPIView
 from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
@@ -9,10 +10,16 @@ from rest_framework.views import APIView
 
 from agents.coordinator import AGENT_REGISTRY, CoordinatorAgent
 from apps.renderers import EventStreamRenderer
-from apps.users.models import FinancialDNA
+from apps.users.models import FinancialDNA, SkillOutcome
+from apps.users.serializers import SkillOutcomeSerializer
+from core.permissions import IsEmailVerified
 
 
-class CoordinatorChatView(APIView):
+class _AgentBaseMixin:
+    permission_classes = [permissions.IsAuthenticated, IsEmailVerified]
+
+
+class CoordinatorChatView(_AgentBaseMixin, APIView):
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "agent"
 
@@ -28,14 +35,12 @@ class CoordinatorChatView(APIView):
         return Response(result)
 
 
-class CoordinatorChatStreamView(APIView):
+class CoordinatorChatStreamView(_AgentBaseMixin, APIView):
     """
     SSE stream: event meta → many delta → done.
     Delta payload: {"text": "..."} — concatenate text for full reply.
     """
 
-    # DRF negotiates Accept before the handler; include text/event-stream so
-    # clients sending only that header do not get 406 Not Acceptable.
     renderer_classes = [JSONRenderer, EventStreamRenderer]
 
     throttle_classes = [ScopedRateThrottle]
@@ -63,7 +68,18 @@ class CoordinatorChatStreamView(APIView):
         return resp
 
 
-class AgentDirectView(APIView):
+class CoordinatorConversationListView(_AgentBaseMixin, ListAPIView):
+    """Paginated coordinator chat turns (SkillOutcome rows for this user)."""
+
+    serializer_class = SkillOutcomeSerializer
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "agent"
+
+    def get_queryset(self):
+        return SkillOutcome.objects.filter(user=self.request.user).order_by("-created_at")
+
+
+class AgentDirectView(_AgentBaseMixin, APIView):
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "agent"
 
@@ -83,7 +99,7 @@ class AgentDirectView(APIView):
         return Response(result)
 
 
-class FeedbackView(APIView):
+class FeedbackView(_AgentBaseMixin, APIView):
     def post(self, request, outcome_id: int):
         helpful = request.data.get("helpful", None)
         if helpful is None:
@@ -101,14 +117,14 @@ class FeedbackView(APIView):
         return Response({"status": "recorded"})
 
 
-class AgentHistoryView(APIView):
+class AgentHistoryView(_AgentBaseMixin, APIView):
     def get(self, request, agent: str):
         dna, _ = FinancialDNA.objects.get_or_create(user=request.user)
         memory = dna.agent_memory.get(agent, {})
         return Response({"agent": agent, "memory": memory})
 
 
-class ClearHistoryView(APIView):
+class ClearHistoryView(_AgentBaseMixin, APIView):
     def delete(self, request, agent: str):
         dna, _ = FinancialDNA.objects.get_or_create(user=request.user)
         block = dict(dna.agent_memory)
@@ -118,7 +134,7 @@ class ClearHistoryView(APIView):
         return Response({"status": "cleared"})
 
 
-class ScenarioView(APIView):
+class ScenarioView(_AgentBaseMixin, APIView):
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "agent"
 

@@ -1,11 +1,16 @@
 import hashlib
 import hmac
 import json
-import os
+
+from django.conf import settings
+
+
+def _secret() -> str:
+    return getattr(settings, "PAYSTACK_SECRET_KEY", "") or ""
 
 
 def verify_paystack_signature(payload: bytes, signature: str) -> bool:
-    secret = os.getenv("PAYSTACK_SECRET_KEY", "")
+    secret = _secret()
     if not secret or not signature:
         return False
     digest = hmac.new(

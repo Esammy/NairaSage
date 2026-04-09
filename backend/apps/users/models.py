@@ -12,6 +12,7 @@ class User(AbstractUser):
         default="free",
     )
     onboarded = models.BooleanField(default=False)
+    is_email_verified = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -94,6 +95,7 @@ class SkillOutcome(models.Model):
     intent_bucket = models.CharField(max_length=100)
     agents_called = models.JSONField()
     user_query = models.TextField()
+    assistant_response = models.TextField(blank=True, default="")
     was_helpful = models.BooleanField(null=True)
     response_time_ms = models.IntegerField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)

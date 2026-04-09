@@ -1,6 +1,11 @@
 """Local development settings."""
 
-from .base import *  # noqa: F403
+import os
+
+# Ensure base.py sees DEBUG=True so SECRET_KEY can use the dev default.
+os.environ.setdefault("DEBUG", "true")
+
+from .base import *  # noqa: F403, E402
 
 DEBUG = True
 

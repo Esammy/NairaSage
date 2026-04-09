@@ -1,0 +1,30 @@
+@import "tailwindcss";
+@config "../tailwind.config.ts";
+
+:root {
+  --background: #fcfcfc;
+  --foreground: #023326;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-outfit), sans-serif;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(2, 51, 38, 0.15);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(2, 51, 38, 0.3);
+}
+
