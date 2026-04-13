@@ -165,10 +165,19 @@ class FinancialDNAView(generics.RetrieveUpdateAPIView):
 
     def perform_update(self, serializer):
         serializer.save()
-        user = self.request.user
+
+
+class CompleteOnboardingView(APIView):
+    """Mark the user as having finished the onboarding wizard (call from final step)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
         if not user.onboarded:
             user.onboarded = True
             user.save(update_fields=["onboarded", "updated_at"])
+        return Response({"detail": "Onboarding complete.", "onboarded": True})
 
 
 class UserGoalViewSet(viewsets.ModelViewSet):

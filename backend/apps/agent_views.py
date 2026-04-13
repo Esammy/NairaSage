@@ -1,7 +1,12 @@
+from __future__ import annotations
+
 import importlib
 
+from typing import Union
+
+from django.db.models import Prefetch
 from django.http import StreamingHttpResponse
-from rest_framework import permissions, status
+from rest_framework import generics, permissions, status
 from rest_framework.generics import ListAPIView
 from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
@@ -10,13 +15,36 @@ from rest_framework.views import APIView
 
 from agents.coordinator import AGENT_REGISTRY, CoordinatorAgent
 from apps.renderers import EventStreamRenderer
-from apps.users.models import FinancialDNA, SkillOutcome
-from apps.users.serializers import SkillOutcomeSerializer
+from apps.users.models import CoordinatorChatSession, FinancialDNA, SkillOutcome
+from apps.users.serializers import (
+    CoordinatorChatSessionDetailSerializer,
+    CoordinatorChatSessionSerializer,
+    SkillOutcomeSerializer,
+)
 from core.permissions import IsEmailVerified
 
 
 class _AgentBaseMixin:
     permission_classes = [permissions.IsAuthenticated, IsEmailVerified]
+
+
+def _parse_session_id(request) -> Union[int, None, Response]:
+    raw = request.data.get("session_id")
+    if raw is None or raw == "":
+        return None
+    try:
+        sid = int(raw)
+    except (TypeError, ValueError):
+        return Response(
+            {"error": "invalid session_id"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not CoordinatorChatSession.objects.filter(pk=sid, user=request.user).exists():
+        return Response(
+            {"error": "Chat session not found"},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    return sid
 
 
 class CoordinatorChatView(_AgentBaseMixin, APIView):
@@ -30,8 +58,11 @@ class CoordinatorChatView(_AgentBaseMixin, APIView):
                 {"error": "message is required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        session_id = _parse_session_id(request)
+        if isinstance(session_id, Response):
+            return session_id
         coordinator = CoordinatorAgent(user_id=request.user.id)
-        result = coordinator.dispatch(message)
+        result = coordinator.dispatch(message, session_id=session_id)
         return Response(result)
 
 
@@ -53,10 +84,13 @@ class CoordinatorChatStreamView(_AgentBaseMixin, APIView):
                 {"error": "message is required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        session_id = _parse_session_id(request)
+        if isinstance(session_id, Response):
+            return session_id
         coordinator = CoordinatorAgent(user_id=request.user.id)
 
         def event_stream():
-            for line in coordinator.iter_sse(message):
+            for line in coordinator.iter_sse(message, session_id=session_id):
                 yield line
 
         resp = StreamingHttpResponse(
@@ -77,6 +111,42 @@ class CoordinatorConversationListView(_AgentBaseMixin, ListAPIView):
 
     def get_queryset(self):
         return SkillOutcome.objects.filter(user=self.request.user).order_by("-created_at")
+
+
+class CoordinatorChatSessionListCreateView(_AgentBaseMixin, generics.ListCreateAPIView):
+    """List chat threads (newest first) or create an empty thread for a new conversation."""
+
+    serializer_class = CoordinatorChatSessionSerializer
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "agent"
+
+    def get_queryset(self):
+        return CoordinatorChatSession.objects.filter(user=self.request.user).order_by(
+            "-updated_at"
+        )
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+
+class CoordinatorChatSessionDetailView(_AgentBaseMixin, generics.RetrieveAPIView):
+    """One thread with ordered turns (for resuming a conversation)."""
+
+    serializer_class = CoordinatorChatSessionDetailSerializer
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "agent"
+
+    def get_queryset(self):
+        return (
+            CoordinatorChatSession.objects.filter(user=self.request.user)
+            .prefetch_related(
+                Prefetch(
+                    "outcomes",
+                    queryset=SkillOutcome.objects.order_by("created_at"),
+                )
+            )
+            .order_by("-updated_at")
+        )
 
 
 class AgentDirectView(_AgentBaseMixin, APIView):

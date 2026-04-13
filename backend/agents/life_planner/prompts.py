@@ -27,6 +27,11 @@ USER PROFILE:
 GOALS DATA:
 {GOALS_DATA}
 
+{TIER_SEPARATION_RULES}
+
+CURATED TIER-1 PASSAGES (books; cite briefly when you use them):
+{RAG_CONTEXT}
+
 LIFE PLANNING FRAMEWORK:
 
 RETIREMENT PLANNING — the math that changes lives:

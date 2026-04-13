@@ -8,6 +8,7 @@ from agents.context_data import build_behavioral_data
 class BehavioralCoachAgent(BaseAgent):
     agent_name = "behavioral_coach"
     system_prompt = prompts.SYSTEM_PROMPT
+    use_tier1_rag = True
 
     def _placeholder_context(self) -> dict[str, str]:
         ctx = super()._placeholder_context()

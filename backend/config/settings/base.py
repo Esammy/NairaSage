@@ -16,12 +16,15 @@ if DEBUG:
 else:
     SECRET_KEY = env("SECRET_KEY")
 
+# Agent and other gated features; override in development if needed.
+REQUIRE_EMAIL_VERIFICATION = env.bool("REQUIRE_EMAIL_VERIFICATION", default=True)
+
 # LLM keys (django-environ); llm_factory reads these via Django settings.
 LLM_PROVIDER = env("LLM_PROVIDER", default="mistral")
 LLM_TEMPERATURE = env.float("LLM_TEMPERATURE", default=0.2)
 LLM_MAX_TOKENS = env.int("LLM_MAX_TOKENS", default=4096)
 LLM_ROUTING_MAX_TOKENS = env.int("LLM_ROUTING_MAX_TOKENS", default=256)
-LLM_SYNTHESIS_MAX_TOKENS = env.int("LLM_SYNTHESIS_MAX_TOKENS", default=2048)
+LLM_SYNTHESIS_MAX_TOKENS = env.int("LLM_SYNTHESIS_MAX_TOKENS", default=960)
 LLM_SYNTHESIS_TEMPERATURE = env.float("LLM_SYNTHESIS_TEMPERATURE", default=0.2)
 MISTRAL_API_KEY = env("MISTRAL_API_KEY", default="")
 OPENAI_API_KEY = env("OPENAI_API_KEY", default="")
@@ -32,6 +35,11 @@ GROQ_MODEL = env("GROQ_MODEL", default="llama-3.3-70b-versatile")
 MISTRAL_ROUTING_MODEL = env("MISTRAL_ROUTING_MODEL", default="")
 OPENAI_ROUTING_MODEL = env("OPENAI_ROUTING_MODEL", default="")
 GROQ_ROUTING_MODEL = env("GROQ_ROUTING_MODEL", default="")
+
+# Tier-1 RAG (Mistral embeddings) + Tavily web search (researcher agent)
+MISTRAL_EMBED_MODEL = env("MISTRAL_EMBED_MODEL", default="mistral-embed")
+MISTRAL_EMBED_DIMENSIONS = env.int("MISTRAL_EMBED_DIMENSIONS", default=1024)
+TAVILY_API_KEY = env("TAVILY_API_KEY", default="")
 
 FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:3000")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="webmaster@localhost")
@@ -75,6 +83,10 @@ INSTALLED_APPS = [
     "apps.notifications",
     "apps.billing",
 ]
+
+# Tier-1 RAG requires PostgreSQL + pgvector (see docs/RAG.md). Omit on SQLite default dev/tests.
+if env.str("DATABASE_URL", default=""):
+    INSTALLED_APPS.append("apps.knowledge")
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
@@ -175,7 +187,8 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    # Access token lifetime while user is active (idle sign-out is enforced in the Next dashboard).
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,

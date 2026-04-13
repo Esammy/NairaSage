@@ -4,15 +4,22 @@ import json
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, Iterator, List, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from django.db import close_old_connections
+from django.utils import timezone
 from langchain_core.messages import AIMessageChunk, HumanMessage, SystemMessage
 
-from apps.users.models import FinancialDNA, SkillGapReport, SkillOutcome, User
+from apps.users.models import (
+    CoordinatorChatSession,
+    FinancialDNA,
+    SkillGapReport,
+    SkillOutcome,
+    User,
+)
 
 from agents.coordinator_prompts import ROUTING_SYSTEM_PROMPT, SYNTHESIS_SYSTEM_PROMPT
-from agents.disclaimer import LEGAL_DISCLAIMER
+from agents.telemetry import log_coordinator_turn
 from agents.prompt_utils import render_prompt
 from core.dna_context import dna_context_for_prompt
 from core.llm_factory import get_llm, get_routing_llm, get_synthesis_llm
@@ -22,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 AGENT_REGISTRY = {
     "accountant": "agents.accountant.agent.AccountantAgent",
+    "researcher": "agents.researcher.agent.ResearcherAgent",
     "economist": "agents.economist.agent.EconomistAgent",
     "investment_advisor": "agents.investment_advisor.agent.InvestmentAdvisorAgent",
     "opportunity_scout": "agents.opportunity_scout.agent.OpportunityScoutAgent",
@@ -162,25 +170,63 @@ class CoordinatorAgent:
         llm = get_synthesis_llm()
         response = llm.invoke(self._synthesis_messages(query, results))
         text = getattr(response, "content", str(response))
-        return text + LEGAL_DISCLAIMER
+        return text
 
-    def dispatch(self, message: str) -> Dict[str, Any]:
+    def _session_for_user(self, session_id: Optional[int]) -> Optional[CoordinatorChatSession]:
+        if not session_id:
+            return None
+        return CoordinatorChatSession.objects.filter(
+            pk=session_id, user_id=self.user_id
+        ).first()
+
+    def _touch_session_after_outcome(
+        self,
+        session: Optional[CoordinatorChatSession],
+        user_message: str,
+    ) -> None:
+        if session is None:
+            return
+        row = CoordinatorChatSession.objects.filter(
+            pk=session.pk, user_id=self.user_id
+        ).first()
+        if not row:
+            return
+        now = timezone.now()
+        payload: Dict[str, Any] = {"updated_at": now}
+        if row.title == "New chat" and user_message.strip():
+            payload["title"] = user_message.strip()[:120]
+        CoordinatorChatSession.objects.filter(pk=session.pk, user_id=self.user_id).update(
+            **payload
+        )
+
+    def dispatch(
+        self, message: str, session_id: Optional[int] = None
+    ) -> Dict[str, Any]:
         start = time.time()
         routing = self.route(message)
         agents = routing.get("agents", ["accountant"])[:3]
         bucket = routing.get("intent_bucket", "unknown")
+        log_coordinator_turn(
+            phase="routing",
+            user_id=self.user_id,
+            intent_bucket=bucket,
+            agents=agents,
+        )
 
+        session = self._session_for_user(session_id)
         results = self._run_agents_parallel(agents, message)
         response_text = self._synthesize(message, results)
         elapsed = int((time.time() - start) * 1000)
         outcome = SkillOutcome.objects.create(
             user_id=self.user_id,
+            session=session,
             intent_bucket=bucket,
             agents_called=agents,
             user_query=message[:500],
             assistant_response=response_text,
             response_time_ms=elapsed,
         )
+        self._touch_session_after_outcome(session, message)
 
         if not results or all(
             "[unavailable]" in str(r.get("summary", "")) for r in results.values()
@@ -195,6 +241,15 @@ class CoordinatorAgent:
             outcome.id,
             elapsed,
         )
+        log_coordinator_turn(
+            phase="dispatch_done",
+            user_id=self.user_id,
+            intent_bucket=bucket,
+            agents=agents,
+            outcome_id=outcome.id,
+            ms=elapsed,
+            response_length=len(response_text),
+        )
         return {
             "response": response_text,
             "agents_used": agents,
@@ -202,12 +257,21 @@ class CoordinatorAgent:
             "outcome_id": outcome.id,
         }
 
-    def iter_sse(self, message: str) -> Iterator[str]:
+    def iter_sse(
+        self, message: str, session_id: Optional[int] = None
+    ) -> Iterator[str]:
         """Server-Sent Events: meta → delta (many) → done."""
         start = time.time()
+        session = self._session_for_user(session_id)
         routing = self.route(message)
         agents = routing.get("agents", ["accountant"])[:3]
         bucket = routing.get("intent_bucket", "unknown")
+        log_coordinator_turn(
+            phase="stream_routing",
+            user_id=self.user_id,
+            intent_bucket=bucket,
+            agents=agents,
+        )
         yield _sse(
             "meta",
             {"agents_used": agents, "intent": bucket},
@@ -230,18 +294,19 @@ class CoordinatorAgent:
             pieces.append(err)
             yield _sse("delta", {"text": err})
 
-        yield _sse("delta", {"text": LEGAL_DISCLAIMER})
-        full_response = "".join(pieces) + LEGAL_DISCLAIMER
+        full_response = "".join(pieces)
 
         elapsed = int((time.time() - start) * 1000)
         outcome = SkillOutcome.objects.create(
             user_id=self.user_id,
+            session=session,
             intent_bucket=bucket,
             agents_called=agents,
             user_query=message[:500],
             assistant_response=full_response,
             response_time_ms=elapsed,
         )
+        self._touch_session_after_outcome(session, message)
 
         if not results or all(
             "[unavailable]" in str(r.get("summary", "")) for r in results.values()
@@ -255,6 +320,15 @@ class CoordinatorAgent:
             agents,
             outcome.id,
             elapsed,
+        )
+        log_coordinator_turn(
+            phase="stream_done",
+            user_id=self.user_id,
+            intent_bucket=bucket,
+            agents=agents,
+            outcome_id=outcome.id,
+            ms=elapsed,
+            response_length=len(full_response),
         )
         yield _sse(
             "done",

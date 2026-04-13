@@ -8,6 +8,7 @@ from agents.savings_optimizer import prompts
 class SavingsOptimizerAgent(BaseAgent):
     agent_name = "savings_optimizer"
     system_prompt = prompts.SYSTEM_PROMPT
+    use_tier1_rag = True
 
     def _placeholder_context(self) -> dict[str, str]:
         ctx = super()._placeholder_context()

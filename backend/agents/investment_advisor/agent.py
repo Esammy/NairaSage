@@ -7,6 +7,7 @@ from agents.investment_advisor import prompts
 class InvestmentAdvisorAgent(BaseAgent):
     agent_name = "investment_advisor"
     system_prompt = prompts.SYSTEM_PROMPT
+    use_tier1_rag = True
 
     def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         q = (input_data.get("query") or "Review portfolio principles for this user.").strip()

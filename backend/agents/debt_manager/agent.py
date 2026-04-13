@@ -8,6 +8,7 @@ from agents.debt_manager import prompts
 class DebtManagerAgent(BaseAgent):
     agent_name = "debt_manager"
     system_prompt = prompts.SYSTEM_PROMPT
+    use_tier1_rag = True
 
     def _placeholder_context(self) -> dict[str, str]:
         ctx = super()._placeholder_context()

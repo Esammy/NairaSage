@@ -10,6 +10,14 @@ urlpatterns = [
         agent_views.CoordinatorConversationListView.as_view(),
     ),
     path(
+        "chat-sessions/",
+        agent_views.CoordinatorChatSessionListCreateView.as_view(),
+    ),
+    path(
+        "chat-sessions/<int:pk>/",
+        agent_views.CoordinatorChatSessionDetailView.as_view(),
+    ),
+    path(
         "accountant/",
         agent_views.AgentDirectView.as_view(),
         {"agent": "accountant"},
@@ -33,6 +41,16 @@ urlpatterns = [
         "life-planner/",
         agent_views.AgentDirectView.as_view(),
         {"agent": "life_planner"},
+    ),
+    path(
+        "opportunity-scout/",
+        agent_views.AgentDirectView.as_view(),
+        {"agent": "opportunity_scout"},
+    ),
+    path(
+        "debt-manager/",
+        agent_views.AgentDirectView.as_view(),
+        {"agent": "debt_manager"},
     ),
     path(
         "educator/",

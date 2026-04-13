@@ -8,6 +8,7 @@ from agents.life_planner import prompts
 class LifePlannerAgent(BaseAgent):
     agent_name = "life_planner"
     system_prompt = prompts.SYSTEM_PROMPT
+    use_tier1_rag = True
 
     def _placeholder_context(self) -> dict[str, str]:
         ctx = super()._placeholder_context()

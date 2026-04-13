@@ -20,6 +20,11 @@ Tax efficiency: Tax-exempt instruments (FGN bonds), withholding tax on dividends
 USER PROFILE:
 {DNA_CONTEXT}
 
+{TIER_SEPARATION_RULES}
+
+CURATED TIER-1 PASSAGES (books; cite briefly when you use them):
+{RAG_CONTEXT}
+
 PORTFOLIO CONSTRUCTION FRAMEWORK:
 
 STEP 1 — RISK PROFILING

@@ -7,5 +7,6 @@ router = DefaultRouter()
 router.register(r"", views.BankAccountViewSet, basename="bankaccount")
 
 urlpatterns = [
+    path("dashboard/", views.DashboardSummaryView.as_view(), name="dashboard-summary"),
     path("", include(router.urls)),
 ]

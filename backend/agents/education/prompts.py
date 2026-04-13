@@ -17,6 +17,11 @@ Financial literacy score: {LITERACY_SCORE}/100
 Completed modules: {COMPLETED_MODULES}
 Recent weak areas: {WEAK_AREAS}
 
+{TIER_SEPARATION_RULES}
+
+CURATED TIER-1 PASSAGES (books; cite briefly when you use them):
+{RAG_CONTEXT}
+
 TEACHING PHILOSOPHY:
 
 1. CONCEPT-TO-ACTION BRIDGE (never teach in a vacuum)

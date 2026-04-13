@@ -7,7 +7,6 @@ from typing import Any, Dict, List
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from agents.disclaimer import LEGAL_DISCLAIMER
 from agents.prompt_utils import render_prompt
 from apps.users.models import FinancialDNA, User
 from core.dna_context import dna_context_for_prompt
@@ -19,8 +18,9 @@ logger = logging.getLogger(__name__)
 class BaseAgent(ABC):
     agent_name: str = "base"
     system_prompt: str = ""
-    add_disclaimer: bool = True
     _max_turns: int = 12
+    #: When True, inject Tier-1 book RAG into `{RAG_CONTEXT}` / `{TIER_SEPARATION_RULES}` placeholders.
+    use_tier1_rag: bool = False
 
     def __init__(self, user_id: int):
         self.user_id = user_id
@@ -46,12 +46,29 @@ class BaseAgent(ABC):
 
     def _placeholder_context(self) -> Dict[str, str]:
         """Override in subclasses to inject domain blocks (transactions, portfolio, etc.)."""
-        return {"DNA_CONTEXT": dna_context_for_prompt(self.dna)}
+        ctx: Dict[str, str] = {"DNA_CONTEXT": dna_context_for_prompt(self.dna)}
+        if self.use_tier1_rag:
+            from agents.rag_prompts import TIER_SEPARATION_RULES
+            from apps.knowledge.retrieval import retrieve_knowledge_context
+
+            ctx["TIER_SEPARATION_RULES"] = TIER_SEPARATION_RULES
+            q = getattr(self, "_pending_user_message", "") or ""
+            try:
+                ctx["RAG_CONTEXT"] = retrieve_knowledge_context(
+                    q, self.agent_name, k=4
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.exception("Tier-1 retrieval failed: %s", e)
+                ctx["RAG_CONTEXT"] = (
+                    "(Book retrieval is temporarily unavailable; proceed without quoted passages.)"
+                )
+        return ctx
 
     def _render_system_content(self) -> str:
         return render_prompt(self.system_prompt, self._placeholder_context())
 
     def chat(self, user_input: str) -> str:
+        self._pending_user_message = user_input
         stored = self._stored_messages()
         history: List = []
         for m in stored[-self._max_turns :]:
@@ -67,8 +84,6 @@ class BaseAgent(ABC):
         try:
             response = self.llm.invoke(messages)
             content = getattr(response, "content", str(response))
-            if self.add_disclaimer:
-                content += LEGAL_DISCLAIMER
             stored.append({"role": "user", "content": user_input})
             stored.append({"role": "assistant", "content": content})
             self._persist_messages(stored)

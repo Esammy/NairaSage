@@ -8,6 +8,7 @@ from agents.education import prompts
 class EducationAgent(BaseAgent):
     agent_name = "education"
     system_prompt = prompts.SYSTEM_PROMPT
+    use_tier1_rag = True
 
     def _placeholder_context(self) -> dict[str, str]:
         ctx = super()._placeholder_context()

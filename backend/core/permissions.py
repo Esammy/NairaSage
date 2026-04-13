@@ -1,5 +1,6 @@
 """Custom DRF permissions."""
 
+from django.conf import settings
 from rest_framework.permissions import BasePermission
 
 
@@ -10,6 +11,8 @@ class IsEmailVerified(BasePermission):
         user = request.user
         if not user or not user.is_authenticated:
             return False
+        if not getattr(settings, "REQUIRE_EMAIL_VERIFICATION", True):
+            return True
         return bool(getattr(user, "is_email_verified", False))
 
 

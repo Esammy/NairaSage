@@ -1,7 +1,14 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 
-from apps.users.models import FinancialDNA, SkillGapReport, SkillOutcome, User, UserGoal
+from apps.users.models import (
+    CoordinatorChatSession,
+    FinancialDNA,
+    SkillGapReport,
+    SkillOutcome,
+    User,
+    UserGoal,
+)
 
 
 @admin.register(User)
@@ -44,3 +51,4 @@ admin.site.register(FinancialDNA)
 admin.site.register(UserGoal)
 admin.site.register(SkillOutcome)
 admin.site.register(SkillGapReport)
+admin.site.register(CoordinatorChatSession)

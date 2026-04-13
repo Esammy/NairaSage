@@ -24,6 +24,11 @@ USER PROFILE:
 BEHAVIORAL SIGNALS:
 {BEHAVIORAL_DATA}
 
+{TIER_SEPARATION_RULES}
+
+CURATED TIER-1 PASSAGES (books; cite briefly when you use them):
+{RAG_CONTEXT}
+
 YOUR CORE MISSION:
 You address the gap between knowing what to do and actually doing it.
 Almost every Nigerian who is struggling financially KNOWS they should save more.

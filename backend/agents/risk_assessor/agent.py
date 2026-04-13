@@ -8,6 +8,7 @@ from agents.risk_assessor import prompts
 class RiskAssessorAgent(BaseAgent):
     agent_name = "risk_assessor"
     system_prompt = prompts.SYSTEM_PROMPT
+    use_tier1_rag = True
 
     def _placeholder_context(self) -> dict[str, str]:
         ctx = super()._placeholder_context()

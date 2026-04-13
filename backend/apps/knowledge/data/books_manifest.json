@@ -1,0 +1,65 @@
+{
+  "1987 The Alchemy of Finance  George Soros.pdf": {
+    "book_title": "The Alchemy of Finance",
+    "author": "George Soros",
+    "publication_year": 1987,
+    "content_type": "framework",
+    "agent_tags": ["economist", "investment_advisor", "risk_assessor", "education"]
+  },
+  "Against the Gods _ The Remarkable Story of Risk - Bernstein, Peter L_.pdf": {
+    "book_title": "Against the Gods: The Remarkable Story of Risk",
+    "author": "Peter L. Bernstein",
+    "publication_year": 1996,
+    "content_type": "history",
+    "agent_tags": ["risk_assessor", "investment_advisor", "education"]
+  },
+  "Benjamin-Graham-The-Intelligent-Investor-The-Definitive-Book-on-Value-Investing.pdf": {
+    "book_title": "The Intelligent Investor",
+    "author": "Benjamin Graham",
+    "publication_year": 1949,
+    "content_type": "principle",
+    "agent_tags": ["investment_advisor", "risk_assessor", "education"]
+  },
+  "I-Will-Teach-You-To-Be-Rich.pdf": {
+    "book_title": "I Will Teach You to Be Rich",
+    "author": "Ramit Sethi",
+    "publication_year": 2009,
+    "content_type": "framework",
+    "agent_tags": ["life_planner", "savings_optimizer", "education"]
+  },
+  "The Millionaire Next Door ( Thomas J. Stanley & William D. Danko, 1998).pdf": {
+    "book_title": "The Millionaire Next Door",
+    "author": "Thomas J. Stanley & William D. Danko",
+    "publication_year": 1998,
+    "content_type": "principle",
+    "agent_tags": ["life_planner", "savings_optimizer", "education"]
+  },
+  "thinking fast and slow.pdf": {
+    "book_title": "Thinking, Fast and Slow",
+    "author": "Daniel Kahneman",
+    "publication_year": 2011,
+    "content_type": "framework",
+    "agent_tags": ["behavioral_coach", "education", "investment_advisor"]
+  },
+  "the-psychology-of-money-by-morgan-housel.pdf": {
+    "book_title": "The Psychology of Money",
+    "author": "Morgan Housel",
+    "publication_year": 2020,
+    "content_type": "principle",
+    "agent_tags": ["behavioral_coach", "investment_advisor", "education"]
+  },
+  "rich-dad-s-guide-to-investing.pdf": {
+    "book_title": "Rich Dad's Guide to Investing",
+    "author": "Robert T. Kiyosaki",
+    "publication_year": 2000,
+    "content_type": "framework",
+    "agent_tags": ["investment_advisor", "education", "life_planner"]
+  },
+  "__Debt__The_First_5_000_Years.pdf": {
+    "book_title": "Debt: The First 5,000 Years",
+    "author": "David Graeber",
+    "publication_year": 2011,
+    "content_type": "history",
+    "agent_tags": ["debt_manager", "education", "behavioral_coach"]
+  }
+}

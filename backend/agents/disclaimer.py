@@ -1,7 +1,6 @@
-"""Single canonical legal disclaimer for coordinator and specialist agents."""
+"""Legal disclaimer was previously appended to every model reply; it is now empty.
 
-LEGAL_DISCLAIMER = (
-    "\n\n---\n"
-    "This is financial information for educational purposes. It is not licensed investment "
-    "advice. Consult a qualified financial advisor before making major financial decisions."
-)
+Surface any required disclosures in product copy (Terms, onboarding, static footer) instead.
+"""
+
+LEGAL_DISCLAIMER = ""

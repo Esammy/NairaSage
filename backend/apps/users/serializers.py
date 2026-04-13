@@ -3,7 +3,13 @@ import logging
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
-from apps.users.models import FinancialDNA, SkillOutcome, User, UserGoal
+from apps.users.models import (
+    CoordinatorChatSession,
+    FinancialDNA,
+    SkillOutcome,
+    User,
+    UserGoal,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +24,8 @@ class UserSerializer(serializers.ModelSerializer):
             "id",
             "email",
             "username",
+            "first_name",
+            "last_name",
             "phone",
             "bvn_verified",
             "tier",
@@ -86,6 +94,7 @@ class SkillOutcomeSerializer(serializers.ModelSerializer):
         model = SkillOutcome
         fields = (
             "id",
+            "session",
             "intent_bucket",
             "agents_called",
             "user_query",
@@ -94,6 +103,22 @@ class SkillOutcomeSerializer(serializers.ModelSerializer):
             "response_time_ms",
             "created_at",
         )
+        read_only_fields = fields
+
+
+class CoordinatorChatSessionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CoordinatorChatSession
+        fields = ("id", "title", "created_at", "updated_at")
+        read_only_fields = ("id", "created_at", "updated_at")
+
+
+class CoordinatorChatSessionDetailSerializer(serializers.ModelSerializer):
+    outcomes = SkillOutcomeSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = CoordinatorChatSession
+        fields = ("id", "title", "created_at", "updated_at", "outcomes")
         read_only_fields = fields
 
 

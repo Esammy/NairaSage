@@ -88,9 +88,33 @@ class UserGoal(models.Model):
         return float(self.current_amount / self.target_amount * 100)
 
 
+class CoordinatorChatSession(models.Model):
+    """User-scoped NairaSage chat thread; groups SkillOutcome turns."""
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="coordinator_chat_sessions"
+    )
+    title = models.CharField(max_length=200, default="New chat")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+
+    def __str__(self) -> str:
+        return f"ChatSession:{self.pk} ({self.user_id})"
+
+
 class SkillOutcome(models.Model):
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="skill_outcomes"
+    )
+    session = models.ForeignKey(
+        CoordinatorChatSession,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="outcomes",
     )
     intent_bucket = models.CharField(max_length=100)
     agents_called = models.JSONField()
