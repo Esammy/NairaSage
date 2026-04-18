@@ -1,21 +1,22 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import {
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Area,
-  AreaChart,
-} from "recharts";
+import dynamic from "next/dynamic";
 import { ArrowUpRight, Wallet, TrendingUp, Lightbulb, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { unwrapResults } from "@/lib/django-api";
+
+const NetWorthAreaChart = dynamic(
+  () =>
+    import("@/components/dashboard/NetWorthAreaChart").then((m) => m.NetWorthAreaChart),
+  {
+    ssr: false,
+    loading: () => <div className="min-h-[220px] w-full animate-pulse rounded-lg bg-muted/20" />,
+  }
+);
 
 type Summary = {
   cash_total: string;
@@ -213,36 +214,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent className="h-[300px] flex flex-col min-w-0">
             <div className="flex-1 min-h-[220px] min-w-0 w-full">
-              <ResponsiveContainer width="100%" height="100%" minHeight={200}>
-                <AreaChart data={chartPlaceholder} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#d4af37" stopOpacity={0.15} />
-                      <stop offset="95%" stopColor="#d4af37" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <XAxis dataKey="name" stroke="#52525b" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#52525b" fontSize={12} tickLine={false} axisLine={false} hide />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#121212",
-                      borderColor: "#27272a",
-                      borderRadius: "8px",
-                    }}
-                    formatter={() => ["No time-series data yet", ""]}
-                  />
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#27272a" />
-                  <Area
-                    type="monotone"
-                    dataKey="value"
-                    stroke="#d4af37"
-                    strokeWidth={2}
-                    strokeOpacity={0.35}
-                    fillOpacity={1}
-                    fill="url(#colorValue)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+              <NetWorthAreaChart data={chartPlaceholder} />
             </div>
           </CardContent>
         </Card>

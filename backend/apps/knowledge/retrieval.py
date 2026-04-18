@@ -2,16 +2,27 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Any
 
+from django.core.cache import cache
 from django.db import connection
 
 logger = logging.getLogger(__name__)
 
+_EMBED_CACHE_TTL = 86400
+_RAG_IDS_CACHE_TTL = 3600
+_CACHE_EMB_PREFIX = "rag_embed:v1"
+_CACHE_IDS_PREFIX = "rag_chunk_ids:v1"
+
 
 def _postgres_available() -> bool:
     return connection.vendor == "postgresql"
+
+
+def _query_fingerprint(query: str) -> str:
+    return hashlib.sha256(query.strip().lower().encode("utf-8")).hexdigest()[:32]
 
 
 def retrieve_knowledge(query: str, agent_name: str, k: int = 4) -> list[dict[str, Any]]:
@@ -35,22 +46,45 @@ def retrieve_knowledge(query: str, agent_name: str, k: int = 4) -> list[dict[str
         logger.warning("RAG dependencies unavailable: %s", e)
         return []
 
+    qfp = _query_fingerprint(q)
+    embed_key = f"{_CACHE_EMB_PREFIX}:{qfp}"
+    qvec = cache.get(embed_key)
     try:
         emb = get_embedding_model()
-        qvec = emb.embed_query(q)
+        if qvec is None:
+            qvec = emb.embed_query(q)
+            cache.set(embed_key, qvec, _EMBED_CACHE_TTL)
     except Exception as e:  # noqa: BLE001
         logger.exception("embed_query failed: %s", e)
         return []
 
+    ids_key = f"{_CACHE_IDS_PREFIX}:{agent_name}:{qfp}:{k}"
+    cached_ids = cache.get(ids_key)
     try:
-        qs = (
-            KnowledgeChunk.objects.filter(is_time_sensitive=False)
-            .filter(agent_tags__overlap=[agent_name])
-            .annotate(distance=CosineDistance("embedding", qvec))
-            .order_by("distance")[:k]
-        )
+        if cached_ids:
+            chunk_map = {
+                row.pk: row
+                for row in KnowledgeChunk.objects.filter(
+                    pk__in=cached_ids,
+                    is_time_sensitive=False,
+                ).filter(agent_tags__overlap=[agent_name])
+            }
+            ordered = [chunk_map[i] for i in cached_ids if i in chunk_map]
+            if len(ordered) != len(cached_ids):
+                cached_ids = None
+            else:
+                qs_rows = ordered
+        if not cached_ids:
+            qs = (
+                KnowledgeChunk.objects.filter(is_time_sensitive=False)
+                .filter(agent_tags__overlap=[agent_name])
+                .annotate(distance=CosineDistance("embedding", qvec))
+                .order_by("distance")[:k]
+            )
+            qs_rows = list(qs)
+            cache.set(ids_key, [row.pk for row in qs_rows], _RAG_IDS_CACHE_TTL)
         out: list[dict[str, Any]] = []
-        for row in qs:
+        for row in qs_rows:
             out.append(
                 {
                     "content": row.content,

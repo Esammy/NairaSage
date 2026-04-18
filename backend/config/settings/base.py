@@ -21,6 +21,9 @@ REQUIRE_EMAIL_VERIFICATION = env.bool("REQUIRE_EMAIL_VERIFICATION", default=True
 
 # LLM keys (django-environ); llm_factory reads these via Django settings.
 LLM_PROVIDER = env("LLM_PROVIDER", default="mistral")
+# Optional overrides for coordinator routing / synthesis only (empty = use LLM_PROVIDER).
+LLM_PROVIDER_ROUTING = env("LLM_PROVIDER_ROUTING", default="")
+LLM_PROVIDER_SYNTHESIS = env("LLM_PROVIDER_SYNTHESIS", default="")
 LLM_TEMPERATURE = env.float("LLM_TEMPERATURE", default=0.2)
 LLM_MAX_TOKENS = env.int("LLM_MAX_TOKENS", default=4096)
 LLM_ROUTING_MAX_TOKENS = env.int("LLM_ROUTING_MAX_TOKENS", default=256)

@@ -6,8 +6,10 @@ import { ChevronsLeft, ChevronsRight, Loader2, MessageSquarePlus, PanelLeft } fr
 import { NairaSageChatPanel } from "@/components/agent/NairaSageChatPanel";
 import { useAgentStream } from "@/hooks/useAgentStream";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { unwrapResults } from "@/lib/django-api";
+import { useChatSessionStore } from "@/lib/chat-session-store";
 
 type ChatSessionRow = {
   id: number;
@@ -30,10 +32,10 @@ export default function DashboardChatPage() {
   const [booting, setBooting] = useState(true);
   /** Chats + New chat column (collapsible on all screen sizes). */
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [input, setInput] = useState("");
   const [chatBackendError, setChatBackendError] = useState<string | null>(null);
 
   const createInFlight = useRef<Promise<ChatSessionRow> | null>(null);
+  const setCoordinatorSessionId = useChatSessionStore((s) => s.setCoordinatorSessionId);
 
   const refetchSessionHead = useCallback(async () => {
     const res = await fetch("/api/django/agent/chat-sessions/?page=1", {
@@ -46,11 +48,25 @@ export default function DashboardChatPage() {
     setSessionPage(1);
   }, []);
 
-  const { messages, sendMessage, isTyping, resetToWelcome, hydrateFromOutcomes } =
-    useAgentStream({
-      sessionId: activeSessionId,
-      onTurnComplete: refetchSessionHead,
-    });
+  const {
+    messages,
+    sendMessage,
+    isTyping,
+    resetToWelcome,
+    hydrateFromOutcomes,
+    stopStreaming,
+    retryAssistantMessage,
+    regenerateAssistantMessage,
+  } = useAgentStream({
+    sessionId: activeSessionId,
+    onTurnComplete: refetchSessionHead,
+  });
+
+  useEffect(() => {
+    if (activeSessionId != null) {
+      setCoordinatorSessionId(activeSessionId);
+    }
+  }, [activeSessionId, setCoordinatorSessionId]);
 
   const postNewSession = useCallback(async (): Promise<ChatSessionRow> => {
     if (!createInFlight.current) {
@@ -171,12 +187,13 @@ export default function DashboardChatPage() {
     await loadSessionDetail(id);
   };
 
-  const handleSend = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isTyping || booting) return;
-    void sendMessage(input);
-    setInput("");
-  };
+  const handleSend = useCallback(
+    (text: string) => {
+      if (!text.trim() || isTyping || booting) return;
+      void sendMessage(text);
+    },
+    [sendMessage, isTyping, booting]
+  );
 
   const formatSessionWhen = (iso: string) => {
     try {
@@ -275,9 +292,10 @@ export default function DashboardChatPage() {
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="flex-1 overflow-y-auto p-2 space-y-1">
               {booting ? (
-                <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading…
+                <div className="space-y-2 p-2" aria-busy="true">
+                  <Skeleton className="h-14 w-full" />
+                  <Skeleton className="h-14 w-full" />
+                  <Skeleton className="h-14 w-4/5" />
                 </div>
               ) : sessions.length === 0 ? (
                 <p className="p-3 text-sm text-muted-foreground">No conversations yet.</p>
@@ -355,9 +373,11 @@ export default function DashboardChatPage() {
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {booting ? (
-            <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-border p-12 text-muted-foreground">
-              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-              Preparing your workspace…
+            <div className="flex flex-1 flex-col gap-3 rounded-2xl border border-dashed border-border p-8" aria-busy="true">
+              <Skeleton className="h-10 w-48" />
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-12 w-full max-w-md" />
             </div>
           ) : (
             <NairaSageChatPanel
@@ -369,11 +389,12 @@ export default function DashboardChatPage() {
                   : "Personal finance co-pilot"
               }
               messages={messages}
-              input={input}
-              setInput={setInput}
-              onSubmit={handleSend}
+              onSend={handleSend}
+              onStop={stopStreaming}
               isTyping={isTyping}
-              disabled={booting || isTyping}
+              disabled={booting}
+              retryAssistantMessage={retryAssistantMessage}
+              regenerateAssistantMessage={regenerateAssistantMessage}
             />
           )}
           </div>

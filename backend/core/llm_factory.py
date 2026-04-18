@@ -1,6 +1,7 @@
 """Single entry point for LLM selection (Mistral default; OpenAI and Groq optional)."""
 
 import os
+from functools import lru_cache
 from typing import Optional
 
 from django.conf import settings
@@ -74,6 +75,25 @@ def _build_chat_model(
     )
 
 
+@lru_cache(maxsize=16)
+def _cached_llm(
+    provider: str,
+    temperature: float,
+    max_tokens: int,
+    mistral_model: str,
+    openai_model: str,
+    groq_model: str,
+) -> BaseChatModel:
+    return _build_chat_model(
+        provider=provider,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        mistral_model=mistral_model,
+        openai_model=openai_model,
+        groq_model=groq_model,
+    )
+
+
 def get_llm(
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
@@ -85,13 +105,13 @@ def get_llm(
         else float(_env_or_setting("LLM_TEMPERATURE", "0.2"))
     )
     tokens = max_tokens or int(_env_or_setting("LLM_MAX_TOKENS", "4096"))
-    return _build_chat_model(
-        provider=provider,
-        temperature=temp,
-        max_tokens=tokens,
-        mistral_model=_env_or_setting("MISTRAL_MODEL", "mistral-large-latest"),
-        openai_model=_env_or_setting("OPENAI_MODEL", "gpt-4o"),
-        groq_model=_env_or_setting("GROQ_MODEL", "llama-3.3-70b-versatile"),
+    return _cached_llm(
+        provider,
+        temp,
+        tokens,
+        _env_or_setting("MISTRAL_MODEL", "mistral-large-latest"),
+        _env_or_setting("OPENAI_MODEL", "gpt-4o"),
+        _env_or_setting("GROQ_MODEL", "llama-3.3-70b-versatile"),
     )
 
 
@@ -99,8 +119,12 @@ def get_routing_llm() -> BaseChatModel:
     """
     Fast coordinator routing: short JSON only.
     Set MISTRAL_ROUTING_MODEL / OPENAI_ROUTING_MODEL to a smaller/faster model.
+    Optional LLM_PROVIDER_ROUTING overrides provider for this call only.
     """
-    provider = _env_or_setting("LLM_PROVIDER", "mistral").lower()
+    provider = (
+        _env_or_setting("LLM_PROVIDER_ROUTING", "").strip().lower()
+        or _env_or_setting("LLM_PROVIDER", "mistral").lower()
+    )
     max_tok = int(_env_or_setting("LLM_ROUTING_MAX_TOKENS", "256"))
     mistral = _env_or_setting("MISTRAL_ROUTING_MODEL", "") or _env_or_setting(
         "MISTRAL_MODEL", "mistral-large-latest"
@@ -111,19 +135,22 @@ def get_routing_llm() -> BaseChatModel:
     groq = _env_or_setting("GROQ_ROUTING_MODEL", "") or _env_or_setting(
         "GROQ_MODEL", "llama-3.1-8b-instant"
     )
-    return _build_chat_model(
-        provider=provider,
-        temperature=0.0,
-        max_tokens=max_tok,
-        mistral_model=mistral,
-        openai_model=openai,
-        groq_model=groq,
+    return _cached_llm(
+        provider,
+        0.0,
+        max_tok,
+        mistral,
+        openai,
+        groq,
     )
 
 
 def get_synthesis_llm() -> BaseChatModel:
     """Coordinator final answer; separate cap from specialist agents."""
-    provider = _env_or_setting("LLM_PROVIDER", "mistral").lower()
+    provider = (
+        _env_or_setting("LLM_PROVIDER_SYNTHESIS", "").strip().lower()
+        or _env_or_setting("LLM_PROVIDER", "mistral").lower()
+    )
     max_tok = int(_env_or_setting("LLM_SYNTHESIS_MAX_TOKENS", "2048"))
     temp = float(
         _env_or_setting(
@@ -131,11 +158,11 @@ def get_synthesis_llm() -> BaseChatModel:
             _env_or_setting("LLM_TEMPERATURE", "0.2"),
         )
     )
-    return _build_chat_model(
-        provider=provider,
-        temperature=temp,
-        max_tokens=max_tok,
-        mistral_model=_env_or_setting("MISTRAL_MODEL", "mistral-large-latest"),
-        openai_model=_env_or_setting("OPENAI_MODEL", "gpt-4o"),
-        groq_model=_env_or_setting("GROQ_MODEL", "llama-3.3-70b-versatile"),
+    return _cached_llm(
+        provider,
+        temp,
+        max_tok,
+        _env_or_setting("MISTRAL_MODEL", "mistral-large-latest"),
+        _env_or_setting("OPENAI_MODEL", "gpt-4o"),
+        _env_or_setting("GROQ_MODEL", "llama-3.3-70b-versatile"),
     )

@@ -1,28 +1,31 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
+from django.core.cache import cache
 from django.db import close_old_connections
 from django.utils import timezone
-from langchain_core.messages import AIMessageChunk, HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from apps.users.models import (
     CoordinatorChatSession,
     FinancialDNA,
-    SkillGapReport,
     SkillOutcome,
     User,
 )
 
 from agents.coordinator_prompts import ROUTING_SYSTEM_PROMPT, SYNTHESIS_SYSTEM_PROMPT
-from agents.telemetry import log_coordinator_turn
 from agents.prompt_utils import render_prompt
+from agents.routing_heuristic import heuristic_route
+from agents.telemetry import log_coordinator_turn
 from core.dna_context import dna_context_for_prompt
-from core.llm_factory import get_llm, get_routing_llm, get_synthesis_llm
+from core.llm_factory import get_synthesis_llm
+from core.stream_utils import stream_chunk_text
 from core.utils import extract_json_object
 
 logger = logging.getLogger(__name__)
@@ -42,55 +45,84 @@ AGENT_REGISTRY = {
     "education": "agents.education.agent.EducationAgent",
 }
 
+_ROUTE_CACHE_TTL = 3600
+_ROUTE_CACHE_PREFIX = "coord_route:v1"
+
 
 def _sse(event: str, payload: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
-def _stream_chunk_text(chunk: Any) -> str:
-    if chunk is None:
-        return ""
-    if isinstance(chunk, AIMessageChunk):
-        c = chunk.content
-    elif hasattr(chunk, "content"):
-        c = getattr(chunk, "content", "")
-    else:
-        return str(chunk) if chunk else ""
-    if isinstance(c, str):
-        return c
-    if isinstance(c, list):
-        parts = []
-        for item in c:
-            if isinstance(item, dict) and item.get("type") == "text":
-                parts.append(item.get("text", ""))
-            elif isinstance(item, str):
-                parts.append(item)
-        return "".join(parts)
-    return str(c) if c else ""
-
-
 class CoordinatorAgent:
     def __init__(self, user_id: int):
         self.user_id = user_id
+        from core.llm_factory import get_routing_llm
+
         self.router_llm = get_routing_llm()
         user = User.objects.get(id=user_id)
         self.dna, _ = FinancialDNA.objects.get_or_create(user=user)
 
+    def _route_cache_key(self, message: str) -> str:
+        norm = " ".join(message.strip().lower().split())
+        digest = hashlib.sha256(norm.encode("utf-8")).hexdigest()[:24]
+        return f"{_ROUTE_CACHE_PREFIX}:{self.user_id}:{digest}"
+
     def route(self, message: str) -> Dict[str, Any]:
-        response = self.router_llm.invoke(
-            [
-                SystemMessage(content=ROUTING_SYSTEM_PROMPT),
-                HumanMessage(content=message),
-            ]
+        cache_key = self._route_cache_key(message)
+        cached = cache.get(cache_key)
+        if isinstance(cached, dict) and cached.get("agents"):
+            decision = dict(cached)
+            return self._apply_routing_weights(decision)
+
+        decision = heuristic_route(message)
+        if decision is None:
+            try:
+                response = self.router_llm.invoke(
+                    [
+                        SystemMessage(content=ROUTING_SYSTEM_PROMPT),
+                        HumanMessage(content=message),
+                    ]
+                )
+                raw = getattr(response, "content", str(response))
+                try:
+                    decision = json.loads(extract_json_object(raw))
+                except json.JSONDecodeError:
+                    logger.warning("Coordinator JSON parse failed: %s", raw[:200])
+                    decision = {
+                        "agents": ["accountant"],
+                        "intent_bucket": "fallback",
+                        "cross_domain": False,
+                    }
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "Routing LLM failed (%s: %s); using heuristic or accountant fallback.",
+                    type(e).__name__,
+                    e,
+                )
+                decision = heuristic_route(message)
+                if decision is None:
+                    decision = {
+                        "agents": ["accountant"],
+                        "intent_bucket": "routing_unavailable",
+                        "cross_domain": False,
+                        "reasoning": "Routing model failed (network, provider block, or API error).",
+                    }
+
+        if "cross_domain" not in decision:
+            decision["cross_domain"] = len(decision.get("agents", []) or []) > 1
+
+        decision = self._apply_routing_weights(decision)
+        cache.set(
+            cache_key,
+            {
+                "agents": decision.get("agents", []),
+                "intent_bucket": decision.get("intent_bucket", ""),
+                "cross_domain": decision.get("cross_domain", False),
+                "reasoning": (decision.get("reasoning") or "")[:500],
+            },
+            _ROUTE_CACHE_TTL,
         )
-        raw = getattr(response, "content", str(response))
-        try:
-            decision = json.loads(extract_json_object(raw))
-            decision = self._apply_routing_weights(decision)
-            return decision
-        except json.JSONDecodeError:
-            logger.warning("Coordinator JSON parse failed: %s", raw[:200])
-            return {"agents": ["accountant"], "intent_bucket": "fallback"}
+        return decision
 
     def _apply_routing_weights(self, decision: dict) -> dict:
         weights = self.dna.routing_weights or {}
@@ -101,14 +133,20 @@ class CoordinatorAgent:
                 if weight > 0.8 and agent not in agents:
                     agents.append(agent)
         decision["agents"] = agents[:3]
+        if "cross_domain" not in decision:
+            decision["cross_domain"] = len(decision["agents"]) > 1
         return decision
 
-    def _load_agent(self, agent_path: str, user_id: int):
+    def _load_agent(self, agent_path: str, user_id: int, dna: FinancialDNA):
         module_path, class_name = agent_path.rsplit(".", 1)
         import importlib
 
         module = importlib.import_module(module_path)
-        return getattr(module, class_name)(user_id=user_id)
+        cls = getattr(module, class_name)
+        try:
+            return cls(user_id=user_id, dna=dna)
+        except TypeError:
+            return cls(user_id=user_id)
 
     def _run_single_agent(self, name: str, message: str) -> Tuple[str, Dict[str, Any]]:
         close_old_connections()
@@ -120,7 +158,7 @@ class CoordinatorAgent:
                     "data": {},
                     "confidence": 0.0,
                 }
-            agent = self._load_agent(path, self.user_id)
+            agent = self._load_agent(path, self.user_id, self.dna)
             return name, agent.run({"query": message})
         except Exception as e:  # noqa: BLE001
             logger.exception("Agent %s failed: %s", name, e)
@@ -132,12 +170,18 @@ class CoordinatorAgent:
         finally:
             close_old_connections()
 
-    def _run_agents_parallel(self, agent_names: List[str], message: str) -> Dict[str, Any]:
+    def _max_parallel_workers(self, num_agents: int, cross_domain: bool) -> int:
+        cap = 3 if cross_domain else min(2, num_agents)
+        return max(1, min(cap, num_agents))
+
+    def _run_agents_parallel(
+        self, agent_names: List[str], message: str, cross_domain: bool = False
+    ) -> Dict[str, Any]:
         names = [n for n in agent_names if AGENT_REGISTRY.get(n)]
         if not names:
             names = ["accountant"]
         results: Dict[str, Any] = {}
-        max_workers = min(3, len(names))
+        max_workers = self._max_parallel_workers(len(names), cross_domain)
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             futures = {
                 pool.submit(self._run_single_agent, n, message): n for n in names
@@ -146,6 +190,23 @@ class CoordinatorAgent:
                 name, payload = fut.result()
                 results[name] = payload
         return {n: results[n] for n in names if n in results}
+
+    def _iter_parallel_agent_results(
+        self,
+        agent_names: List[str],
+        message: str,
+        cross_domain: bool,
+    ) -> Iterator[Tuple[str, Dict[str, Any]]]:
+        names = [n for n in agent_names if AGENT_REGISTRY.get(n)]
+        if not names:
+            names = ["accountant"]
+        max_workers = self._max_parallel_workers(len(names), cross_domain)
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {
+                pool.submit(self._run_single_agent, n, message): n for n in names
+            }
+            for fut in as_completed(futures):
+                yield fut.result()
 
     def _synthesis_messages(self, query: str, results: dict):
         context = "\n\n".join(
@@ -199,6 +260,11 @@ class CoordinatorAgent:
             **payload
         )
 
+    def _flag_skill_gap(self, query: str, bucket: str) -> None:
+        from tasks.skill_gap_tasks import flag_skill_gap_report
+
+        flag_skill_gap_report.delay(query, bucket)
+
     def dispatch(
         self, message: str, session_id: Optional[int] = None
     ) -> Dict[str, Any]:
@@ -206,6 +272,7 @@ class CoordinatorAgent:
         routing = self.route(message)
         agents = routing.get("agents", ["accountant"])[:3]
         bucket = routing.get("intent_bucket", "unknown")
+        cross = bool(routing.get("cross_domain", False))
         log_coordinator_turn(
             phase="routing",
             user_id=self.user_id,
@@ -214,8 +281,13 @@ class CoordinatorAgent:
         )
 
         session = self._session_for_user(session_id)
-        results = self._run_agents_parallel(agents, message)
-        response_text = self._synthesize(message, results)
+        if len(agents) == 1:
+            name, payload = self._run_single_agent(agents[0], message)
+            results = {name: payload}
+            response_text = str(payload.get("summary", ""))
+        else:
+            results = self._run_agents_parallel(agents, message, cross_domain=cross)
+            response_text = self._synthesize(message, results)
         elapsed = int((time.time() - start) * 1000)
         outcome = SkillOutcome.objects.create(
             user_id=self.user_id,
@@ -260,12 +332,13 @@ class CoordinatorAgent:
     def iter_sse(
         self, message: str, session_id: Optional[int] = None
     ) -> Iterator[str]:
-        """Server-Sent Events: meta → delta (many) → done."""
+        """Server-Sent Events: meta → status (optional) → delta (many) → done."""
         start = time.time()
         session = self._session_for_user(session_id)
         routing = self.route(message)
         agents = routing.get("agents", ["accountant"])[:3]
         bucket = routing.get("intent_bucket", "unknown")
+        cross = bool(routing.get("cross_domain", False))
         log_coordinator_turn(
             phase="stream_routing",
             user_id=self.user_id,
@@ -277,22 +350,66 @@ class CoordinatorAgent:
             {"agents_used": agents, "intent": bucket},
         )
 
-        results = self._run_agents_parallel(agents, message)
-
-        llm = get_synthesis_llm()
-        messages = self._synthesis_messages(message, results)
         pieces: List[str] = []
-        try:
-            for chunk in llm.stream(messages):
-                text = _stream_chunk_text(chunk)
-                if text:
-                    pieces.append(text)
-                    yield _sse("delta", {"text": text})
-        except Exception as e:  # noqa: BLE001
-            logger.exception("Synthesis stream failed: %s", e)
-            err = "I could not complete the response. Please try again."
-            pieces.append(err)
-            yield _sse("delta", {"text": err})
+        results: Dict[str, Any] = {}
+
+        if len(agents) == 1:
+            name = agents[0]
+            path = AGENT_REGISTRY.get(name)
+            if path:
+                agent = self._load_agent(path, self.user_id, self.dna)
+                if name == "researcher":
+                    payload = agent.run({"query": message})
+                    summary = str(payload.get("summary", ""))
+                    results[name] = payload
+                    step = 160
+                    for i in range(0, len(summary), step):
+                        part = summary[i : i + step]
+                        pieces.append(part)
+                        yield _sse("delta", {"text": part})
+                elif hasattr(agent, "stream_chat"):
+                    for text in agent.stream_chat(message):
+                        if text:
+                            pieces.append(text)
+                            yield _sse("delta", {"text": text})
+                    full_single = "".join(pieces)
+                    results[name] = {
+                        "summary": full_single,
+                        "data": {},
+                        "confidence": 0.8,
+                    }
+                else:
+                    n2, payload = self._run_single_agent(name, message)
+                    results[n2] = payload
+                    summary = str(payload.get("summary", ""))
+                    step = 160
+                    for i in range(0, len(summary), step):
+                        part = summary[i : i + step]
+                        pieces.append(part)
+                        yield _sse("delta", {"text": part})
+        else:
+            for agent_name, payload in self._iter_parallel_agent_results(
+                agents, message, cross_domain=cross
+            ):
+                results[agent_name] = payload
+                yield _sse(
+                    "status",
+                    {"agent": agent_name, "phase": "ready"},
+                )
+
+            llm = get_synthesis_llm()
+            messages = self._synthesis_messages(message, results)
+            try:
+                for chunk in llm.stream(messages):
+                    text = stream_chunk_text(chunk)
+                    if text:
+                        pieces.append(text)
+                        yield _sse("delta", {"text": text})
+            except Exception as e:  # noqa: BLE001
+                logger.exception("Synthesis stream failed: %s", e)
+                err = "I could not complete the response. Please try again."
+                pieces.append(err)
+                yield _sse("delta", {"text": err})
 
         full_response = "".join(pieces)
 
@@ -333,31 +450,6 @@ class CoordinatorAgent:
         yield _sse(
             "done",
             {"outcome_id": outcome.id, "response_length": len(full_response)},
-        )
-
-    def _flag_skill_gap(self, query: str, bucket: str):
-        existing = SkillGapReport.objects.filter(
-            query_pattern__icontains=bucket[:50], status="pending"
-        ).first()
-        if existing:
-            existing.frequency += 1
-            existing.save(update_fields=["frequency"])
-            return
-        gap_llm = get_llm(temperature=0.2, max_tokens=512)
-        spec_response = gap_llm.invoke(
-            [
-                SystemMessage(
-                    content=(
-                        "Write a brief technical spec for a new NairaSage agent skill "
-                        "that would handle this type of user query. Under 200 words."
-                    )
-                ),
-                HumanMessage(content=f"Query: {query}\nBucket: {bucket}"),
-            ]
-        )
-        SkillGapReport.objects.create(
-            query_pattern=query[:300],
-            proposed_spec=getattr(spec_response, "content", str(spec_response)),
         )
 
     def record_feedback(self, outcome_id: int, was_helpful: bool) -> bool:

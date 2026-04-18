@@ -11,6 +11,7 @@ from agents.prompt_utils import render_prompt
 from apps.users.models import FinancialDNA, User
 from core.dna_context import dna_context_for_prompt
 from core.llm_factory import get_llm
+from core.stream_utils import stream_chunk_text
 
 logger = logging.getLogger(__name__)
 
@@ -18,18 +19,21 @@ logger = logging.getLogger(__name__)
 class BaseAgent(ABC):
     agent_name: str = "base"
     system_prompt: str = ""
-    _max_turns: int = 12
+    _max_turns: int = 6
     #: When True, inject Tier-1 book RAG into `{RAG_CONTEXT}` / `{TIER_SEPARATION_RULES}` placeholders.
     use_tier1_rag: bool = False
 
-    def __init__(self, user_id: int):
+    def __init__(self, user_id: int, dna: FinancialDNA | None = None):
         self.user_id = user_id
         self.llm = get_llm()
-        try:
-            self.dna = FinancialDNA.objects.select_related("user").get(user_id=user_id)
-        except FinancialDNA.DoesNotExist:
-            user = User.objects.get(id=user_id)
-            self.dna = FinancialDNA.objects.create(user=user)
+        if dna is not None:
+            self.dna = dna
+        else:
+            try:
+                self.dna = FinancialDNA.objects.select_related("user").get(user_id=user_id)
+            except FinancialDNA.DoesNotExist:
+                user = User.objects.get(id=user_id)
+                self.dna = FinancialDNA.objects.create(user=user)
 
     def _stored_messages(self) -> List[Dict[str, str]]:
         block = self.dna.agent_memory.get(self.agent_name, {})
@@ -91,6 +95,37 @@ class BaseAgent(ABC):
         except Exception as e:  # noqa: BLE001
             logger.exception("%s error: %s", self.agent_name, e)
             return "I encountered an error processing your request. Please try again."
+
+    def stream_chat(self, user_input: str):
+        """Yield text chunks from the LLM; persists the full turn like chat()."""
+        self._pending_user_message = user_input
+        stored = self._stored_messages()
+        history: List = []
+        for m in stored[-self._max_turns :]:
+            if m.get("role") == "user":
+                history.append(HumanMessage(content=m["content"]))
+            else:
+                history.append(AIMessage(content=m["content"]))
+        messages = [
+            SystemMessage(content=self._render_system_content()),
+            *history,
+            HumanMessage(content=user_input),
+        ]
+        pieces: List[str] = []
+        try:
+            for chunk in self.llm.stream(messages):
+                text = stream_chunk_text(chunk)
+                if text:
+                    pieces.append(text)
+                    yield text
+            content = "".join(pieces)
+            stored.append({"role": "user", "content": user_input})
+            stored.append({"role": "assistant", "content": content})
+            self._persist_messages(stored)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("%s stream error: %s", self.agent_name, e)
+            err = "I encountered an error processing your request. Please try again."
+            yield err
 
     @abstractmethod
     def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:

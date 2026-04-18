@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 from django.conf import settings
 from langchain_core.embeddings import Embeddings
 
@@ -13,6 +15,7 @@ except ImportError:
 from core.llm_factory import _env_or_setting
 
 
+@lru_cache(maxsize=2)
 def get_embedding_model() -> Embeddings:
     if MistralAIEmbeddings is None:
         raise RuntimeError("langchain-mistralai is not installed")

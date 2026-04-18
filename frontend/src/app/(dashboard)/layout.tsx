@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import { TopBar } from "@/components/dashboard/TopBar";
 import { NairaSageQuickChat } from "@/components/agent/CoordinatorChat";
+import { ChatSessionPrefetch } from "@/components/dashboard/ChatSessionPrefetch";
 import { useIdleSessionLogout } from "@/hooks/useIdleSessionLogout";
 
 export default function DashboardLayout({
@@ -18,6 +19,7 @@ export default function DashboardLayout({
 
   return (
     <div className="flex h-screen bg-background overflow-hidden relative">
+      <ChatSessionPrefetch />
       {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (
         <div 

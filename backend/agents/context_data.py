@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 
 from apps.debt.models import Debt
@@ -39,18 +39,12 @@ def build_transaction_summary(user_id: int, limit: int = 40) -> str:
         lines.append(
             f"{t.date} | {t.type} | {_fmt_money(t.amount)} | {t.category or 'uncategorized'} | {t.description[:80]}"
         )
-    debit_total = (
-        Transaction.objects.filter(account__user_id=user_id, type="debit").aggregate(
-            s=Sum("amount")
-        )["s"]
-        or 0
+    agg = Transaction.objects.filter(account__user_id=user_id).aggregate(
+        debit=Sum("amount", filter=Q(type="debit")),
+        credit=Sum("amount", filter=Q(type="credit")),
     )
-    credit_total = (
-        Transaction.objects.filter(account__user_id=user_id, type="credit").aggregate(
-            s=Sum("amount")
-        )["s"]
-        or 0
-    )
+    debit_total = agg["debit"] or 0
+    credit_total = agg["credit"] or 0
     lines.append(f"All-time totals — credits: {_fmt_money(credit_total)}, debits: {_fmt_money(debit_total)}")
     return "\n".join(lines)
 

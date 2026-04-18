@@ -6,12 +6,24 @@ Monorepo: Django REST API (`backend/`) and Next.js app (`frontend/`).
 
 ### Backend
 
+Use the project virtualenv at `backend\venv` (create it once if missing). **Activate it before every** `pip`, `manage.py`, or `rqworker` command in that shell.
+
 ```bash
 cd backend
 python -m venv venv
-# Windows: venv\Scripts\activate
+```
+
+Activate:
+
+- **Windows (PowerShell):** `.\venv\Scripts\Activate.ps1`
+- **Windows (CMD):** `venv\Scripts\activate.bat`
+- **macOS / Linux:** `source venv/bin/activate`
+
+Then:
+
+```bash
 pip install -r requirements.txt
-cp .env.example .env   # edit values; see Environment below
+# Copy env template: Unix `cp .env.example .env` — Windows PowerShell: `Copy-Item .env.example .env`
 python manage.py migrate
 python manage.py runserver
 ```
@@ -23,6 +35,8 @@ python manage.py runserver
 Cache, health checks, and RQ workers expect Redis at `REDIS_URL` (default `redis://127.0.0.1:6379/0`).
 
 ### RQ worker (routing-weight updates after chat feedback)
+
+Activate `backend\venv` in this shell, then:
 
 ```bash
 cd backend
@@ -66,6 +80,8 @@ npm run dev
 | `PAYSTACK_PLAN_STARTER`, `PAYSTACK_PLAN_PRO` | Subscriptions | Paystack plan codes |
 | `MISTRAL_API_KEY` / `OPENAI_API_KEY` / `GROQ_API_KEY` | One per `LLM_PROVIDER` | See `backend/core/llm_factory.py` |
 | `LLM_PROVIDER` | | `mistral` (default), `openai`, or `groq` |
+
+**Groq / routing errors:** If you see `403` or *Access denied. Please check your network settings* from Groq, that provider may block your region or network. Set `LLM_PROVIDER=mistral` (or `openai`) and the matching API key, or use `LLM_PROVIDER_ROUTING` / `LLM_PROVIDER_SYNTHESIS` in `.env` to point routing at a different provider than specialists. The coordinator falls back to keyword routing + `accountant` if the routing model call fails, so chat should not hard-crash.
 | `SENTRY_DSN` | Optional | Set in production settings |
 | `EMAIL_*` | Production mail | `EMAIL_BACKEND`, SMTP host/user/password |
 | `AWS_*` | Optional | S3/R2 media when configured in production |
@@ -90,5 +106,5 @@ Adjust `REDIS_URL` / `DATABASE_URL` in compose environment if using host Redis i
 
 ## Testing & CI
 
-- Backend: `cd backend && python manage.py test`
+- Backend: `cd backend`, activate `venv`, then `python manage.py test`
 - CI: `.github/workflows/ci.yml`

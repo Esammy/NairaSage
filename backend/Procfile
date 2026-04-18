@@ -1,5 +1,7 @@
 # Linux/PaaS (Railway, Render): use rq>=2 + django-rq 4 on the server.
 # Windows dev uses rq<2 + django-rq 2.x (see requirements.txt comments).
 web: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 4
+# Optional: ASGI for concurrent SSE (set PORT in environment).
+web_asgi: uvicorn config.asgi:application --host 0.0.0.0 --port $PORT
 worker: python manage.py rqworker high default low
 scheduler: python manage.py rqscheduler

@@ -5,20 +5,21 @@ from typing import Any, Dict, List
 
 from django.conf import settings
 
-from agents.base_agent import BaseAgent
 from agents.researcher import prompts
 
 logger = logging.getLogger(__name__)
 
 
-class ResearcherAgent(BaseAgent):
+class ResearcherAgent:
     """
-    Live web context via Tavily. Returns structured sources for coordinator synthesis.
-    Does not write opportunities or persist web pages.
+    Live web context via Tavily. Does not use the specialist LLM or BaseAgent memory.
     """
 
     agent_name = "researcher"
     system_prompt = prompts.SYSTEM_PROMPT
+
+    def __init__(self, user_id: int, dna=None):
+        self.user_id = user_id
 
     def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         q = (input_data.get("query") or "").strip()

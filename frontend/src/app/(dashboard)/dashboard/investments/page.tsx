@@ -1,12 +1,21 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
+import dynamic from "next/dynamic";
 import { TrendingUp, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { unwrapResults } from "@/lib/django-api";
+
+const PortfolioPieSection = dynamic(
+  () =>
+    import("@/components/dashboard/PortfolioPieSection").then((m) => m.PortfolioPieSection),
+  {
+    ssr: false,
+    loading: () => <div className="h-[250px] w-full animate-pulse rounded-lg bg-muted/20" />,
+  }
+);
 
 type Holding = {
   id: number;
@@ -26,8 +35,6 @@ type Portfolio = {
   risk_score: number | null;
   holdings: Holding[];
 };
-
-const PIE_COLORS = ["#d4af37", "#10b981", "#8b5cf6", "#f59e0b", "#3b82f6", "#ec4899", "#64748b"];
 
 function riskLabel(score: number | null | undefined) {
   if (score == null || Number.isNaN(score)) return "Not set";
@@ -197,42 +204,12 @@ export default function InvestmentsPage() {
             ) : (
               <>
                 <div className="h-[250px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={pieData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={90}
-                        paddingAngle={5}
-                        dataKey="value"
-                        stroke="none"
-                      >
-                        {pieData.map((_, index) => (
-                          <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: "#121212",
-                          borderColor: "#27272a",
-                          borderRadius: "8px",
-                        }}
-                        itemStyle={{ color: "#f8fafc" }}
-                        formatter={(value) => [`${typeof value === "number" ? value : Number(value) || 0}%`, "Weight"]}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  <PortfolioPieSection data={pieData} />
                 </div>
                 <div className="w-full mt-4 space-y-2">
-                  {pieData.map((asset, i) => (
+                  {pieData.map((asset) => (
                     <div key={asset.name} className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-2 min-w-0">
-                        <div
-                          className="w-3 h-3 rounded-full shrink-0"
-                          style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }}
-                        />
                         <span className="text-muted-foreground truncate">{asset.name}</span>
                       </div>
                       <span className="font-medium text-foreground shrink-0">{asset.value}%</span>

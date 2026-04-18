@@ -48,8 +48,12 @@ OUTPUT FORMAT — return ONLY this JSON, nothing else:
 {
   "agents": ["agent_name_1", "agent_name_2"],
   "intent_bucket": "snake_case_label",
+  "cross_domain": true,
   "reasoning": "one sentence explaining the routing decision"
 }
+
+Set "cross_domain" to true when the query clearly needs 3 specialists or spans unrelated domains
+(so the coordinator can run wider parallel fan-out). Use false for simple single-domain questions.
 
 EXAMPLE ROUTINGS:
   'how much did I spend on food last month?'
