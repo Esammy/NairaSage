@@ -47,6 +47,24 @@ class FinancialDNA(models.Model):
     routing_weights = models.JSONField(default=dict)
     preferred_language = models.CharField(max_length=20, default="en")
     notification_prefs = models.JSONField(default=dict)
+    # Kiyosaki / Rich Dad onboarding anchors. Empty string means not yet set.
+    primary_motivation = models.CharField(
+        max_length=20,
+        blank=True,
+        default="",
+        help_text="security | comfort | rich | wealthy",
+    )
+    quadrant_anchor = models.CharField(
+        max_length=1,
+        blank=True,
+        default="",
+        help_text="E | S | B | I - starting CASHFLOW Quadrant",
+    )
+    phase_anchor = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Starting phase 1..5 from Rich Dad onboarding",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

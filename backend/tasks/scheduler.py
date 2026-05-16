@@ -30,3 +30,14 @@ def setup_scheduled_tasks():
         func="tasks.market_tasks.refresh_all_portfolios",
         queue_name="default",
     )
+    # Rich Dad Wealth OS: nightly refresh of financial statements + level
+    scheduler.cron(
+        "30 2 * * *",
+        func="tasks.wealth_tasks.refresh_all_wealth",
+        queue_name="low",
+    )
+    scheduler.cron(
+        "0 3 * * *",
+        func="tasks.wealth_tasks.mark_stale_next_actions",
+        queue_name="low",
+    )

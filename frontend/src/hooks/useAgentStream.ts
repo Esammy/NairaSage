@@ -1,13 +1,32 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { agentKeysToTopics } from "@/lib/agent-topics";
+
+export type ChatActionStatus = "pending" | "applied" | "cancelled" | "failed";
+
+export type ChatActionState = {
+  id: number;
+  tool: string;
+  args: Record<string, unknown>;
+  human_summary: string;
+  diff_preview: Record<string, unknown>;
+  status: ChatActionStatus;
+  error?: string;
+};
+
+export type ActionStripItem = {
+  id: number;
+  human_summary: string;
+  status: ChatActionStatus;
+  error?: string;
+};
 
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
-  /** User-facing topic labels derived from routing (never raw agent keys). */
   topics?: string[];
   isStreaming?: boolean;
+  actions?: ChatActionState[];
 }
 
 function emptyThread(): ChatMessage[] {
@@ -22,26 +41,56 @@ export type OutcomeTurn = {
 };
 
 export type UseAgentStreamOptions = {
-  /** When set, streamed turns are stored against this chat session on the server. */
   sessionId?: number | null;
-  /** Called after a streamed reply finishes successfully (refresh session list, etc.). */
   onTurnComplete?: () => void;
+  /** Fired once per assistant reply when streaming begins (after placeholder message exists). */
+  onAssistantStreamStart?: (messageId: string) => void;
+  /** Each SSE text delta from the model (for streaming TTS, etc.). */
+  onAssistantDelta?: (payload: { messageId: string; delta: string }) => void;
+  /** Fired when the assistant message finishes streaming (`done` event). */
+  onAssistantStreamEnd?: (messageId: string) => void;
 };
 
 export function useAgentStream(options?: UseAgentStreamOptions) {
+  const optsRef = useRef(options);
+  useEffect(() => {
+    optsRef.current = options;
+  }, [options]);
+
   const sessionId = options?.sessionId ?? null;
-  const onTurnComplete = options?.onTurnComplete;
 
   const [messages, setMessages] = useState<ChatMessage[]>(() => emptyThread());
   const [isTyping, setIsTyping] = useState(false);
+  const [actionStrip, setActionStrip] = useState<ActionStripItem[]>([]);
 
   const resetToWelcome = useCallback(() => {
     setMessages(emptyThread());
+    setActionStrip([]);
   }, []);
+
+  const resolveChatAction = useCallback(
+    (id: number, status: ChatActionStatus, error?: string) => {
+      setMessages((prev) =>
+        prev.map((m) => ({
+          ...m,
+          actions: m.actions?.map((a) =>
+            a.id === id ? { ...a, status, error } : a
+          ),
+        }))
+      );
+      setActionStrip((prev) =>
+        prev.map((row) =>
+          row.id === id ? { ...row, status, error } : row
+        )
+      );
+    },
+    []
+  );
 
   const hydrateFromOutcomes = useCallback((outcomes: OutcomeTurn[]) => {
     if (!outcomes.length) {
       setMessages(emptyThread());
+      setActionStrip([]);
       return;
     }
     const built: ChatMessage[] = [];
@@ -59,6 +108,7 @@ export function useAgentStream(options?: UseAgentStreamOptions) {
       });
     }
     setMessages(built);
+    setActionStrip([]);
   }, []);
 
   const sendMessage = useCallback(
@@ -137,6 +187,7 @@ export function useAgentStream(options?: UseAgentStreamOptions) {
               }
 
               if (eventName === "meta") {
+                optsRef.current?.onAssistantStreamStart?.(assistantMessageId);
                 agentsUsed = (data.agents_used as string[]) || [];
                 const topics = agentKeysToTopics(agentsUsed);
                 setMessages((prev) =>
@@ -146,6 +197,10 @@ export function useAgentStream(options?: UseAgentStreamOptions) {
                 );
               } else if (eventName === "delta") {
                 const chunk = (data.text as string) || "";
+                optsRef.current?.onAssistantDelta?.({
+                  messageId: assistantMessageId,
+                  delta: chunk,
+                });
                 setMessages((prev) =>
                   prev.map((m) =>
                     m.id === assistantMessageId
@@ -153,7 +208,34 @@ export function useAgentStream(options?: UseAgentStreamOptions) {
                       : m
                   )
                 );
+              } else if (eventName === "action_proposal") {
+                const id = Number(data.id);
+                if (!Number.isFinite(id)) continue;
+                const item: ChatActionState = {
+                  id,
+                  tool: String(data.tool || ""),
+                  args: (data.args as Record<string, unknown>) || {},
+                  human_summary: String(data.human_summary || ""),
+                  diff_preview: (data.diff_preview as Record<string, unknown>) || {},
+                  status: "pending",
+                };
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMessageId
+                      ? { ...m, actions: [...(m.actions || []), item] }
+                      : m
+                  )
+                );
+                setActionStrip((prev) => [
+                  ...prev.filter((x) => x.id !== id),
+                  {
+                    id,
+                    human_summary: item.human_summary,
+                    status: "pending",
+                  },
+                ]);
               } else if (eventName === "done") {
+                optsRef.current?.onAssistantStreamEnd?.(assistantMessageId);
                 setMessages((prev) =>
                   prev.map((m) =>
                     m.id === assistantMessageId ? { ...m, isStreaming: false } : m
@@ -163,7 +245,7 @@ export function useAgentStream(options?: UseAgentStreamOptions) {
             }
           }
         }
-        onTurnComplete?.();
+        optsRef.current?.onTurnComplete?.();
       } catch (err) {
         console.error("Agent Stream Error:", err);
         setMessages((prev) =>
@@ -182,7 +264,7 @@ export function useAgentStream(options?: UseAgentStreamOptions) {
         setIsTyping(false);
       }
     },
-    [sessionId, onTurnComplete]
+    [sessionId]
   );
 
   return {
@@ -192,5 +274,7 @@ export function useAgentStream(options?: UseAgentStreamOptions) {
     isTyping,
     resetToWelcome,
     hydrateFromOutcomes,
+    actionStrip,
+    resolveChatAction,
   };
 }

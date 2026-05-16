@@ -46,7 +46,7 @@ export default function DashboardChatPage() {
     setSessionPage(1);
   }, []);
 
-  const { messages, sendMessage, isTyping, resetToWelcome, hydrateFromOutcomes } =
+  const { messages, sendMessage, isTyping, resetToWelcome, hydrateFromOutcomes, resolveChatAction } =
     useAgentStream({
       sessionId: activeSessionId,
       onTurnComplete: refetchSessionHead,
@@ -374,6 +374,7 @@ export default function DashboardChatPage() {
               onSubmit={handleSend}
               isTyping={isTyping}
               disabled={booting || isTyping}
+              resolveChatAction={resolveChatAction}
             />
           )}
           </div>

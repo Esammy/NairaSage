@@ -60,23 +60,23 @@ export default function LandingPage() {
             ) : isLoggedIn ? (
               <>
                 <Link
-                  href="/dashboard/chat"
+                  href="/wealth/chat"
                   className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors hidden sm:inline-flex items-center gap-1.5"
                 >
                   <MessageCircle className="h-4 w-4" />
-                  Chat
+                  Coach
                 </Link>
                 <Link
-                  href="/dashboard/chat"
+                  href="/wealth/chat"
                   className="sm:hidden inline-flex h-10 w-10 items-center justify-center rounded-full border border-border text-muted-foreground hover:text-primary hover:border-primary/40"
-                  aria-label="Open chat"
+                  aria-label="Open coach"
                 >
                   <MessageCircle className="h-5 w-5" />
                 </Link>
-                <Link href="/dashboard">
+                <Link href="/wealth">
                   <Button className="bg-primary text-primary-foreground hover:bg-gold-600 shadow-lg shadow-gold-500/20 h-10 px-5 sm:px-6 rounded-full font-semibold gap-2">
                     <LayoutDashboard className="h-4 w-4" />
-                    Dashboard
+                    Open Wealth OS
                   </Button>
                 </Link>
               </>
@@ -121,13 +121,13 @@ export default function LandingPage() {
             {session === "loading" ? (
               <div className="h-14 w-72 max-w-full rounded-full bg-muted/60 animate-pulse" aria-hidden />
             ) : isLoggedIn ? (
-              <Link href="/dashboard">
+              <Link href="/wealth">
                 <Button
                   size="lg"
                   className="w-full sm:w-auto h-14 px-8 text-lg font-bold bg-primary hover:bg-gold-600 shadow-xl shadow-gold-500/25 rounded-full transition-transform hover:scale-105 gap-2"
                 >
                   <LayoutDashboard className="h-5 w-5" />
-                  Go to your dashboard
+                  Open your Wealth Cockpit
                   <ArrowRight className="w-5 h-5" />
                 </Button>
               </Link>
@@ -305,13 +305,13 @@ export default function LandingPage() {
             {session === "loading" ? (
               <div className="h-14 w-64 max-w-full rounded-full bg-muted/60 animate-pulse" aria-hidden />
             ) : isLoggedIn ? (
-              <Link href="/dashboard">
+              <Link href="/wealth">
                 <Button
                   size="lg"
                   className="h-14 px-8 text-lg font-bold bg-primary hover:bg-gold-600 shadow-xl shadow-gold-500/25 rounded-full w-full sm:w-auto gap-2"
                 >
                   <LayoutDashboard className="h-5 w-5" />
-                  Continue to dashboard
+                  Continue to Wealth OS
                 </Button>
               </Link>
             ) : (

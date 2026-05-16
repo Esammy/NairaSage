@@ -8,6 +8,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 interface TopBarProps {
   onOpenChat: () => void;
   onMobileMenuToggle: () => void;
+  /** Wealth layout uses "Ask the Coach"; dashboard keeps default. */
+  askButtonLabel?: string;
 }
 
 type Me = {
@@ -35,7 +37,7 @@ function initials(me: Me | null) {
   return src.slice(0, 2).toUpperCase();
 }
 
-export function TopBar({ onOpenChat, onMobileMenuToggle }: TopBarProps) {
+export function TopBar({ onOpenChat, onMobileMenuToggle, askButtonLabel }: TopBarProps) {
   const [me, setMe] = useState<Me | null>(null);
 
   useEffect(() => {
@@ -90,7 +92,7 @@ export function TopBar({ onOpenChat, onMobileMenuToggle }: TopBarProps) {
             className="bg-primary hover:bg-gold-600 text-primary-foreground shadow-lg shadow-gold-500/20 transition-all group"
           >
             <Bot className="mr-2 h-4 w-4 group-hover:scale-110 transition-transform" />
-            <span className="hidden sm:inline">Ask NairaSage</span>
+            <span className="hidden sm:inline">{askButtonLabel ?? "Ask NairaSage"}</span>
           </Button>
 
           <button type="button" className="-m-2.5 p-2.5 text-muted-foreground hover:text-foreground">

@@ -69,6 +69,7 @@ npm run dev
 | `SENTRY_DSN` | Optional | Set in production settings |
 | `EMAIL_*` | Production mail | `EMAIL_BACKEND`, SMTP host/user/password |
 | `AWS_*` | Optional | S3/R2 media when configured in production |
+| `ASSEMBLYAI_API_KEY` | Optional | Real-time voice STT; tokens minted at `GET /api/wealth/voice/token/` (never expose the key in the browser) |
 
 Copy [backend/.env.example](backend/.env.example) and extend with any keys above.
 

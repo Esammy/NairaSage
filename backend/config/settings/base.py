@@ -41,6 +41,9 @@ MISTRAL_EMBED_MODEL = env("MISTRAL_EMBED_MODEL", default="mistral-embed")
 MISTRAL_EMBED_DIMENSIONS = env.int("MISTRAL_EMBED_DIMENSIONS", default=1024)
 TAVILY_API_KEY = env("TAVILY_API_KEY", default="")
 
+# AssemblyAI streaming STT: mint short-lived tokens server-side (never expose API key in the browser).
+ASSEMBLYAI_API_KEY = env("ASSEMBLYAI_API_KEY", default="")
+
 FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:3000")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="webmaster@localhost")
 EMAIL_VERIFICATION_PATH = env("EMAIL_VERIFICATION_PATH", default="/verify-email")
@@ -82,6 +85,7 @@ INSTALLED_APPS = [
     "apps.debt",
     "apps.notifications",
     "apps.billing",
+    "apps.wealth",
 ]
 
 # Tier-1 RAG requires PostgreSQL + pgvector (see docs/RAG.md). Omit on SQLite default dev/tests.

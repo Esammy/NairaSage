@@ -46,7 +46,7 @@ function LoginForm() {
         throw new Error("Invalid email or password.");
       }
 
-      router.push("/dashboard");
+      router.push("/wealth");
       router.refresh();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Something went wrong.");

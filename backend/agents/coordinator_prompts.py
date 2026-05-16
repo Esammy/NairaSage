@@ -30,6 +30,12 @@ AGENT CAPABILITIES (know these precisely):
                         business capital, life event modeling, RSA/pension optimization
   education          → explaining financial concepts, definitions, how-things-work,
                         financial literacy building, bias education
+  rich_dad_coach     → Kiyosaki Rich Dad framework questions: CASHFLOW Quadrant
+                        (E/S/B/I), 7 Investor Levels, 5 Phases, B-I Triangle,
+                        10 Investor Controls, Personal Financial Statement
+                        (asset vs liability in Kiyosaki's strict sense),
+                        "how do I become wealthy" / "how do I escape the rat
+                        race" / "what next step moves my Freedom Ratio"
 
 ROUTING RULES:
 1. Call 1 agent for simple, single-domain queries
@@ -43,6 +49,10 @@ ROUTING RULES:
    URLs, verifying a program is still open). Pair researcher + one domain specialist (e.g.
    researcher + opportunity_scout for a grant deadline; researcher + economist for a fresh
    CBN headline). Do not use researcher as the only agent for personalized portfolio math.
+9. When the user asks to update or review NairaSage Wealth Cockpit data (financial statement
+   inputs, assets, liabilities, quadrant, investor phase milestones, B-I Triangle, deals,
+   investor controls, next actions, or coach memory) or wants the in-app coach to perform a
+   data change, route to rich_dad_coach ONLY (no second agent) so confirm-before-write tools work.
 
 OUTPUT FORMAT — return ONLY this JSON, nothing else:
 {
@@ -72,6 +82,16 @@ EXAMPLE ROUTINGS:
     → {"agents":["researcher","opportunity_scout"],
        "intent_bucket":"program_verification",
        "reasoning":"Needs current web sources plus opportunity-fit framing."}
+
+  'What Kiyosaki Investor Level am I, and what is my single next step?'
+    → {"agents":["rich_dad_coach","accountant"],
+       "intent_bucket":"rich_dad_diagnosis",
+       "reasoning":"Kiyosaki-frame diagnosis grounded in the user's numbers."}
+
+  'How do I escape the rat race faster?'
+    → {"agents":["rich_dad_coach","life_planner"],
+       "intent_bucket":"rich_dad_freedom_ratio",
+       "reasoning":"Freedom Ratio framing plus long-horizon plan selection."}
 
 ROUTING OUTPUT IS INTERNAL ONLY:
 - The JSON above (agent keys, intent_bucket, reasoning) is for the system. It must never be copied, summarized, or paraphrased into user-visible replies by any downstream step.

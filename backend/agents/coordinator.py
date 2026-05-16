@@ -40,6 +40,26 @@ AGENT_REGISTRY = {
     "risk_assessor": "agents.risk_assessor.agent.RiskAssessorAgent",
     "life_planner": "agents.life_planner.agent.LifePlannerAgent",
     "education": "agents.education.agent.EducationAgent",
+    "rich_dad_coach": "agents.rich_dad_coach.agent.RichDadCoachAgent",
+}
+
+
+# Kiyosaki spine: which specialist helps exit which investor level / phase.
+# Used by the Rich Dad Coach to narrate progress and in UI copy.
+RICH_DAD_SPECIALIST_MAP = {
+    "debt_manager": {"exits_level": 1, "phase": 1, "frame": "escape Level 1 Borrower"},
+    "savings_optimizer": {"exits_level": 2, "phase": 2, "frame": "escape Level 2 Saver"},
+    "investment_advisor": {"exits_level": 4, "phase": 4, "frame": "reach Level 4-5 Investor"},
+    "opportunity_scout": {"exits_level": 5, "phase": 4, "frame": "source Phase 4 deal flow"},
+    "behavioral_coach": {"exits_level": 0, "phase": 1, "frame": "Phase 1 mental prep"},
+    "life_planner": {"exits_level": 3, "phase": 2, "frame": "Phase 2 pick your plan"},
+    "tax_advisor": {"exits_level": 4, "phase": 4, "frame": "Investor Control 4 - taxes"},
+    "risk_assessor": {"exits_level": 4, "phase": 4, "frame": "Investor Controls 1-3"},
+    "education": {"exits_level": 0, "phase": 1, "frame": "3 E's - Education"},
+    "accountant": {"exits_level": 0, "phase": 1, "frame": "Personal Financial Statement"},
+    "researcher": {"exits_level": 0, "phase": 1, "frame": "Phase 1 research"},
+    "economist": {"exits_level": 0, "phase": 1, "frame": "Phase 1 macro context"},
+    "rich_dad_coach": {"exits_level": 0, "phase": 1, "frame": "NairaSage Coach"},
 }
 
 
@@ -172,6 +192,25 @@ class CoordinatorAgent:
         text = getattr(response, "content", str(response))
         return text
 
+    def _should_reframe(self, agents: List[str]) -> bool:
+        """Run the Rich Dad reframer when the user has completed onboarding
+        and the primary specialist is not already the Rich Dad Coach itself."""
+        try:
+            if not (self.dna and self.dna.primary_motivation):
+                return False
+        except Exception:  # noqa: BLE001
+            return False
+        return "rich_dad_coach" not in (agents or [])
+
+    def _reframe(self, text: str) -> str:
+        try:
+            from agents.rich_dad_coach.agent import reframe_reply
+
+            return reframe_reply(self.user_id, text)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("Rich Dad reframer failed: %s", e)
+            return text
+
     def _session_for_user(self, session_id: Optional[int]) -> Optional[CoordinatorChatSession]:
         if not session_id:
             return None
@@ -214,8 +253,23 @@ class CoordinatorAgent:
         )
 
         session = self._session_for_user(session_id)
-        results = self._run_agents_parallel(agents, message)
-        response_text = self._synthesize(message, results)
+        if "rich_dad_coach" in agents:
+            from agents.rich_dad_coach.agent import RichDadCoachAgent
+
+            coach = RichDadCoachAgent(self.user_id)
+            response_text = coach.chat(message)
+            results = {
+                "rich_dad_coach": {
+                    "summary": response_text,
+                    "data": {},
+                    "confidence": 0.85,
+                }
+            }
+        else:
+            results = self._run_agents_parallel(agents, message)
+            response_text = self._synthesize(message, results)
+            if self._should_reframe(agents):
+                response_text = self._reframe(response_text)
         elapsed = int((time.time() - start) * 1000)
         outcome = SkillOutcome.objects.create(
             user_id=self.user_id,
@@ -277,24 +331,49 @@ class CoordinatorAgent:
             {"agents_used": agents, "intent": bucket},
         )
 
-        results = self._run_agents_parallel(agents, message)
+        pieces_acc: List[str] = []
+        if "rich_dad_coach" in agents:
+            from agents.rich_dad_coach.agent import RichDadCoachAgent
 
-        llm = get_synthesis_llm()
-        messages = self._synthesis_messages(message, results)
-        pieces: List[str] = []
-        try:
-            for chunk in llm.stream(messages):
-                text = _stream_chunk_text(chunk)
-                if text:
-                    pieces.append(text)
-                    yield _sse("delta", {"text": text})
-        except Exception as e:  # noqa: BLE001
-            logger.exception("Synthesis stream failed: %s", e)
-            err = "I could not complete the response. Please try again."
-            pieces.append(err)
-            yield _sse("delta", {"text": err})
+            coach = RichDadCoachAgent(self.user_id)
+            for line in coach.iter_sse_turn(
+                message, session_id, pieces_acc, emit=_sse
+            ):
+                yield line
+            full_response = "".join(pieces_acc)
+        else:
+            results = self._run_agents_parallel(agents, message)
 
-        full_response = "".join(pieces)
+            llm = get_synthesis_llm()
+            messages = self._synthesis_messages(message, results)
+            pieces: List[str] = []
+            try:
+                for chunk in llm.stream(messages):
+                    text = _stream_chunk_text(chunk)
+                    if text:
+                        pieces.append(text)
+                        yield _sse("delta", {"text": text})
+            except Exception as e:  # noqa: BLE001
+                logger.exception("Synthesis stream failed: %s", e)
+                err = "I could not complete the response. Please try again."
+                pieces.append(err)
+                yield _sse("delta", {"text": err})
+
+            full_response = "".join(pieces)
+
+            if self._should_reframe(agents):
+                try:
+                    reframed = self._reframe(full_response)
+                    addition = (
+                        reframed[len(full_response) :]
+                        if reframed.startswith(full_response)
+                        else ""
+                    )
+                    if addition:
+                        yield _sse("delta", {"text": addition})
+                        full_response = reframed
+                except Exception as e:  # noqa: BLE001
+                    logger.exception("Streaming reframe append failed: %s", e)
 
         elapsed = int((time.time() - start) * 1000)
         outcome = SkillOutcome.objects.create(
