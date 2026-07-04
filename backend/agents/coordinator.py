@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import queue
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, Iterator, List, Optional, Tuple
@@ -43,6 +44,26 @@ AGENT_REGISTRY = {
     "risk_assessor": "agents.risk_assessor.agent.RiskAssessorAgent",
     "life_planner": "agents.life_planner.agent.LifePlannerAgent",
     "education": "agents.education.agent.EducationAgent",
+    "rich_dad_coach": "agents.rich_dad_coach.agent.RichDadCoachAgent",
+}
+
+
+# Kiyosaki spine: which specialist helps exit which investor level / phase.
+# Used by the Rich Dad Coach to narrate progress and in UI copy.
+RICH_DAD_SPECIALIST_MAP = {
+    "debt_manager": {"exits_level": 1, "phase": 1, "frame": "escape Level 1 Borrower"},
+    "savings_optimizer": {"exits_level": 2, "phase": 2, "frame": "escape Level 2 Saver"},
+    "investment_advisor": {"exits_level": 4, "phase": 4, "frame": "reach Level 4-5 Investor"},
+    "opportunity_scout": {"exits_level": 5, "phase": 4, "frame": "source Phase 4 deal flow"},
+    "behavioral_coach": {"exits_level": 0, "phase": 1, "frame": "Phase 1 mental prep"},
+    "life_planner": {"exits_level": 3, "phase": 2, "frame": "Phase 2 pick your plan"},
+    "tax_advisor": {"exits_level": 4, "phase": 4, "frame": "Investor Control 4 - taxes"},
+    "risk_assessor": {"exits_level": 4, "phase": 4, "frame": "Investor Controls 1-3"},
+    "education": {"exits_level": 0, "phase": 1, "frame": "3 E's - Education"},
+    "accountant": {"exits_level": 0, "phase": 1, "frame": "Personal Financial Statement"},
+    "researcher": {"exits_level": 0, "phase": 1, "frame": "Phase 1 research"},
+    "economist": {"exits_level": 0, "phase": 1, "frame": "Phase 1 macro context"},
+    "rich_dad_coach": {"exits_level": 0, "phase": 1, "frame": "NairaSage Coach"},
 }
 
 _ROUTE_CACHE_TTL = 3600
@@ -51,6 +72,64 @@ _ROUTE_CACHE_PREFIX = "coord_route:v1"
 
 def _sse(event: str, payload: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+_GREETINGS = {
+    "hi", "hii", "hiii", "hello", "helo", "hey", "heyy", "yo", "sup", "hiya",
+    "good morning", "good afternoon", "good evening", "good day", "gm", "ga",
+    "how far", "howfar", "how you dey", "how you dey?", "abeg", "hey there",
+    "hello there", "hi there", "greetings", "morning", "evening", "afternoon",
+}
+_THANKS = {"thanks", "thank you", "thank u", "thx", "ty", "tnx", "thanks!", "thank you!", "much appreciated", "appreciate it", "nice one", "well done"}
+_HOWAREYOU = {"how are you", "how are you?", "how are you doing", "how's it going", "hows it going", "how do you do", "and you", "how are u"}
+
+
+def _smalltalk_reply(message: str, first_name: str = "") -> Optional[str]:
+    """Warm reply for greetings / thanks / 'how are you' so they aren't routed
+    to a finance specialist. Returns None for anything that needs real help."""
+    norm = message.strip().lower().strip("!.? ")
+    if not norm or len(norm) > 40:
+        return None
+    name = f" {first_name}" if first_name else ""
+    if norm in _THANKS:
+        return (
+            f"You're very welcome{name}! 😊 I'm always here whenever you need a hand "
+            "with your money. Anything else I can help you with?"
+        )
+    if norm in _HOWAREYOU:
+        return (
+            f"I'm doing great, thanks for asking{name}! 😊 More importantly — how are you, "
+            "and what can I help you sort out with your money today?"
+        )
+    if norm in _GREETINGS or (len(norm) <= 12 and any(norm.startswith(g) for g in ("hi", "hey", "hello", "yo", "good "))):
+        return (
+            f"Hey{name}! 👋 I'm NairaSage, your personal money co-pilot. I can help with "
+            "budgeting, saving, investing, debt, tax, or just figuring out your next smart "
+            "move with your Naira. What's on your mind today?"
+        )
+    return None
+
+
+def _stream_chunk_text(chunk: Any) -> str:
+    if chunk is None:
+        return ""
+    if isinstance(chunk, AIMessageChunk):
+        c = chunk.content
+    elif hasattr(chunk, "content"):
+        c = getattr(chunk, "content", "")
+    else:
+        return str(chunk) if chunk else ""
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        parts = []
+        for item in c:
+            if isinstance(item, dict) and item.get("type") == "text":
+                parts.append(item.get("text", ""))
+            elif isinstance(item, str):
+                parts.append(item)
+        return "".join(parts)
+    return str(c) if c else ""
 
 
 class CoordinatorAgent:
@@ -191,22 +270,56 @@ class CoordinatorAgent:
                 results[name] = payload
         return {n: results[n] for n in names if n in results}
 
-    def _iter_parallel_agent_results(
-        self,
-        agent_names: List[str],
-        message: str,
-        cross_domain: bool,
+    def _iter_agents_parallel(
+        self, agent_names: List[str], message: str
     ) -> Iterator[Tuple[str, Dict[str, Any]]]:
+        """Run specialists in parallel while yielding their lifecycle as it happens.
+
+        Yields ("agent_started", {...}) / ("agent_finished", {...}) tuples in real
+        time via a queue bridging the worker threads to this generator, then a
+        final ("results", {agent: payload}) carrying the collected reports. The
+        SSE consumer turns these into live orchestration events; they also act
+        as keepalives during the otherwise-silent parallel phase.
+        """
         names = [n for n in agent_names if AGENT_REGISTRY.get(n)]
         if not names:
             names = ["accountant"]
-        max_workers = self._max_parallel_workers(len(names), cross_domain)
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = {
-                pool.submit(self._run_single_agent, n, message): n for n in names
-            }
-            for fut in as_completed(futures):
-                yield fut.result()
+        q: "queue.Queue[Tuple[str, Dict[str, Any], Dict[str, Any]]]" = queue.Queue()
+
+        def worker(name: str) -> None:
+            frame = RICH_DAD_SPECIALIST_MAP.get(name, {}).get("frame", "")
+            q.put(("agent_started", {"agent": name, "frame": frame}, {}))
+            t0 = time.time()
+            _, payload = self._run_single_agent(name, message)
+            q.put(
+                (
+                    "agent_finished",
+                    {
+                        "agent": name,
+                        "ms": int((time.time() - t0) * 1000),
+                        "confidence": payload.get("confidence", 0.0),
+                        "summary_preview": str(payload.get("summary", ""))[:160],
+                    },
+                    payload,
+                )
+            )
+
+        results: Dict[str, Any] = {}
+        with ThreadPoolExecutor(max_workers=min(3, len(names))) as pool:
+            for n in names:
+                pool.submit(worker, n)
+            finished = 0
+            while finished < len(names):
+                try:
+                    kind, public, payload = q.get(timeout=300)
+                except queue.Empty:
+                    logger.error("Agent lifecycle queue timed out; continuing with partial results")
+                    break
+                if kind == "agent_finished":
+                    finished += 1
+                    results[public["agent"]] = payload
+                yield kind, public
+        yield "results", {n: results[n] for n in names if n in results}
 
     def _synthesis_messages(self, query: str, results: dict):
         context = "\n\n".join(
@@ -232,6 +345,25 @@ class CoordinatorAgent:
         response = llm.invoke(self._synthesis_messages(query, results))
         text = getattr(response, "content", str(response))
         return text
+
+    def _should_reframe(self, agents: List[str]) -> bool:
+        """Run the Rich Dad reframer when the user has completed onboarding
+        and the primary specialist is not already the Rich Dad Coach itself."""
+        try:
+            if not (self.dna and self.dna.primary_motivation):
+                return False
+        except Exception:  # noqa: BLE001
+            return False
+        return "rich_dad_coach" not in (agents or [])
+
+    def _reframe(self, text: str) -> str:
+        try:
+            from agents.rich_dad_coach.agent import reframe_reply
+
+            return reframe_reply(self.user_id, text)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("Rich Dad reframer failed: %s", e)
+            return text
 
     def _session_for_user(self, session_id: Optional[int]) -> Optional[CoordinatorChatSession]:
         if not session_id:
@@ -269,6 +401,28 @@ class CoordinatorAgent:
         self, message: str, session_id: Optional[int] = None
     ) -> Dict[str, Any]:
         start = time.time()
+
+        first_name = (getattr(self.dna.user, "first_name", "") or "").strip()
+        smalltalk = _smalltalk_reply(message, first_name)
+        if smalltalk:
+            session = self._session_for_user(session_id)
+            outcome = SkillOutcome.objects.create(
+                user_id=self.user_id,
+                session=session,
+                intent_bucket="greeting",
+                agents_called=[],
+                user_query=message[:500],
+                assistant_response=smalltalk,
+                response_time_ms=int((time.time() - start) * 1000),
+            )
+            self._touch_session_after_outcome(session, message)
+            return {
+                "response": smalltalk,
+                "agents_used": [],
+                "intent": "greeting",
+                "outcome_id": outcome.id,
+            }
+
         routing = self.route(message)
         agents = routing.get("agents", ["accountant"])[:3]
         bucket = routing.get("intent_bucket", "unknown")
@@ -281,13 +435,23 @@ class CoordinatorAgent:
         )
 
         session = self._session_for_user(session_id)
-        if len(agents) == 1:
-            name, payload = self._run_single_agent(agents[0], message)
-            results = {name: payload}
-            response_text = str(payload.get("summary", ""))
+        if "rich_dad_coach" in agents:
+            from agents.rich_dad_coach.agent import RichDadCoachAgent
+
+            coach = RichDadCoachAgent(self.user_id)
+            response_text = coach.chat(message)
+            results = {
+                "rich_dad_coach": {
+                    "summary": response_text,
+                    "data": {},
+                    "confidence": 0.85,
+                }
+            }
         else:
-            results = self._run_agents_parallel(agents, message, cross_domain=cross)
+            results = self._run_agents_parallel(agents, message)
             response_text = self._synthesize(message, results)
+            if self._should_reframe(agents):
+                response_text = self._reframe(response_text)
         elapsed = int((time.time() - start) * 1000)
         outcome = SkillOutcome.objects.create(
             user_id=self.user_id,
@@ -335,6 +499,31 @@ class CoordinatorAgent:
         """Server-Sent Events: meta → status (optional) → delta (many) → done."""
         start = time.time()
         session = self._session_for_user(session_id)
+
+        # Greetings / thanks / small talk: reply warmly without routing to a
+        # finance specialist (faster, and far friendlier than a money lecture).
+        first_name = (getattr(self.dna.user, "first_name", "") or "").strip()
+        smalltalk = _smalltalk_reply(message, first_name)
+        if smalltalk:
+            yield _sse("meta", {"agents_used": [], "intent": "greeting"})
+            for word in smalltalk.split(" "):
+                yield _sse("delta", {"text": word + " "})
+            outcome = SkillOutcome.objects.create(
+                user_id=self.user_id,
+                session=session,
+                intent_bucket="greeting",
+                agents_called=[],
+                user_query=message[:500],
+                assistant_response=smalltalk,
+                response_time_ms=int((time.time() - start) * 1000),
+            )
+            self._touch_session_after_outcome(session, message)
+            yield _sse(
+                "done",
+                {"outcome_id": outcome.id, "response_length": len(smalltalk)},
+            )
+            return
+
         routing = self.route(message)
         agents = routing.get("agents", ["accountant"])[:3]
         bucket = routing.get("intent_bucket", "unknown")
@@ -349,59 +538,65 @@ class CoordinatorAgent:
             "meta",
             {"agents_used": agents, "intent": bucket},
         )
-
-        pieces: List[str] = []
-        results: Dict[str, Any] = {}
-
-        if len(agents) == 1:
-            name = agents[0]
-            path = AGENT_REGISTRY.get(name)
-            if path:
-                agent = self._load_agent(path, self.user_id, self.dna)
-                if name == "researcher":
-                    payload = agent.run({"query": message})
-                    summary = str(payload.get("summary", ""))
-                    results[name] = payload
-                    step = 160
-                    for i in range(0, len(summary), step):
-                        part = summary[i : i + step]
-                        pieces.append(part)
-                        yield _sse("delta", {"text": part})
-                elif hasattr(agent, "stream_chat"):
-                    for text in agent.stream_chat(message):
-                        if text:
-                            pieces.append(text)
-                            yield _sse("delta", {"text": text})
-                    full_single = "".join(pieces)
-                    results[name] = {
-                        "summary": full_single,
-                        "data": {},
-                        "confidence": 0.8,
+        yield _sse(
+            "routing",
+            {
+                "agents": [
+                    {
+                        "agent": a,
+                        "frame": RICH_DAD_SPECIALIST_MAP.get(a, {}).get("frame", ""),
                     }
-                else:
-                    n2, payload = self._run_single_agent(name, message)
-                    results[n2] = payload
-                    summary = str(payload.get("summary", ""))
-                    step = 160
-                    for i in range(0, len(summary), step):
-                        part = summary[i : i + step]
-                        pieces.append(part)
-                        yield _sse("delta", {"text": part})
-        else:
-            for agent_name, payload in self._iter_parallel_agent_results(
-                agents, message, cross_domain=cross
+                    for a in agents
+                ],
+                "intent": bucket,
+            },
+        )
+
+        pieces_acc: List[str] = []
+        results: Dict[str, Any] = {}
+        if "rich_dad_coach" in agents:
+            from agents.rich_dad_coach.agent import RichDadCoachAgent
+
+            coach_started = time.time()
+            yield _sse(
+                "agent_started",
+                {"agent": "rich_dad_coach", "frame": "NairaSage Coach"},
+            )
+            coach = RichDadCoachAgent(self.user_id)
+            for line in coach.iter_sse_turn(
+                message, session_id, pieces_acc, emit=_sse
             ):
-                results[agent_name] = payload
-                yield _sse(
-                    "status",
-                    {"agent": agent_name, "phase": "ready"},
-                )
+                yield line
+            full_response = "".join(pieces_acc)
+            yield _sse(
+                "agent_finished",
+                {
+                    "agent": "rich_dad_coach",
+                    "ms": int((time.time() - coach_started) * 1000),
+                    "confidence": 0.85,
+                },
+            )
+            results = {
+                "rich_dad_coach": {
+                    "summary": full_response,
+                    "data": {},
+                    "confidence": 0.85,
+                }
+            }
+        else:
+            for kind, payload in self._iter_agents_parallel(agents, message):
+                if kind == "results":
+                    results = payload
+                else:
+                    yield _sse(kind, payload)
+            yield _sse("synthesis_started", {"agents": list(results.keys())})
 
             llm = get_synthesis_llm()
             messages = self._synthesis_messages(message, results)
+            pieces: List[str] = []
             try:
                 for chunk in llm.stream(messages):
-                    text = stream_chunk_text(chunk)
+                    text = _stream_chunk_text(chunk)
                     if text:
                         pieces.append(text)
                         yield _sse("delta", {"text": text})
@@ -411,7 +606,21 @@ class CoordinatorAgent:
                 pieces.append(err)
                 yield _sse("delta", {"text": err})
 
-        full_response = "".join(pieces)
+            full_response = "".join(pieces)
+
+            if self._should_reframe(agents):
+                try:
+                    reframed = self._reframe(full_response)
+                    addition = (
+                        reframed[len(full_response) :]
+                        if reframed.startswith(full_response)
+                        else ""
+                    )
+                    if addition:
+                        yield _sse("delta", {"text": addition})
+                        full_response = reframed
+                except Exception as e:  # noqa: BLE001
+                    logger.exception("Streaming reframe append failed: %s", e)
 
         elapsed = int((time.time() - start) * 1000)
         outcome = SkillOutcome.objects.create(

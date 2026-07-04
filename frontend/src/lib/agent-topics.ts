@@ -13,6 +13,12 @@ const AGENT_TO_TOPIC: Record<string, string> = {
   education: "Learning",
 };
 
+/** Single-key label for the orchestration panel (coach gets its product name). */
+export function agentKeyToLabel(key: string): string {
+  if (key === "rich_dad_coach") return "NairaSage Coach";
+  return AGENT_TO_TOPIC[key] || key.replace(/_/g, " ");
+}
+
 export function agentKeysToTopics(keys: string[] | undefined): string[] {
   if (!keys?.length) return [];
   const out: string[] = [];

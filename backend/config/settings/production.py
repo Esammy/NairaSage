@@ -53,13 +53,21 @@ LOGGING = {
     },
 }
 
-# Optional S3 / R2 for media (set STORAGES via env-driven override)
+# Optional S3-compatible media storage. For Alibaba Cloud OSS set
+# AWS_S3_ENDPOINT_URL to the bucket's *S3-compatible* endpoint — note the
+# "s3." prefix: https://s3.oss-<region>.aliyuncs.com (e.g. s3.oss-eu-central-1
+# .aliyuncs.com). OSS requires Signature V2 + virtual-hosted addressing; boto3's
+# default SigV4 fails against OSS, so AWS_S3_SIGNATURE_VERSION defaults to "s3".
 if env("AWS_STORAGE_BUCKET_NAME", default=None) and "storages" not in INSTALLED_APPS:  # noqa: F405
     INSTALLED_APPS += ["storages"]  # noqa: F405
     AWS_ACCESS_KEY_ID = env("AWS_ACCESS_KEY_ID")  # noqa: F405
     AWS_SECRET_ACCESS_KEY = env("AWS_SECRET_ACCESS_KEY")  # noqa: F405
     AWS_STORAGE_BUCKET_NAME = env("AWS_STORAGE_BUCKET_NAME")  # noqa: F405
-    AWS_S3_REGION_NAME = env("AWS_S3_REGION_NAME", default="af-south-1")  # noqa: F405
+    AWS_S3_REGION_NAME = env("AWS_S3_REGION_NAME", default="us-east-1")  # noqa: F405
+    AWS_S3_ENDPOINT_URL = env("AWS_S3_ENDPOINT_URL", default=None)  # noqa: F405
+    AWS_S3_ADDRESSING_STYLE = env("AWS_S3_ADDRESSING_STYLE", default="virtual")  # noqa: F405
+    AWS_S3_SIGNATURE_VERSION = env("AWS_S3_SIGNATURE_VERSION", default="s3")  # noqa: F405
+    AWS_DEFAULT_ACL = None  # OSS bucket ACL governs; don't send x-amz-acl
     STORAGES = {
         **STORAGES,  # noqa: F405
         "default": {

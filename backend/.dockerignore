@@ -1,0 +1,14 @@
+venv/
+**/__pycache__/
+*.pyc
+*.pyo
+.env
+.env.*
+!.env.example
+!.env.production.example
+db.sqlite3
+books/
+staticfiles/
+.pytest_cache/
+.mypy_cache/
+*.log

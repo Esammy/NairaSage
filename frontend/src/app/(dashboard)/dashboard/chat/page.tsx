@@ -48,25 +48,11 @@ export default function DashboardChatPage() {
     setSessionPage(1);
   }, []);
 
-  const {
-    messages,
-    sendMessage,
-    isTyping,
-    resetToWelcome,
-    hydrateFromOutcomes,
-    stopStreaming,
-    retryAssistantMessage,
-    regenerateAssistantMessage,
-  } = useAgentStream({
-    sessionId: activeSessionId,
-    onTurnComplete: refetchSessionHead,
-  });
-
-  useEffect(() => {
-    if (activeSessionId != null) {
-      setCoordinatorSessionId(activeSessionId);
-    }
-  }, [activeSessionId, setCoordinatorSessionId]);
+  const { messages, sendMessage, isTyping, resetToWelcome, hydrateFromOutcomes, resolveChatAction } =
+    useAgentStream({
+      sessionId: activeSessionId,
+      onTurnComplete: refetchSessionHead,
+    });
 
   const postNewSession = useCallback(async (): Promise<ChatSessionRow> => {
     if (!createInFlight.current) {
@@ -392,9 +378,8 @@ export default function DashboardChatPage() {
               onSend={handleSend}
               onStop={stopStreaming}
               isTyping={isTyping}
-              disabled={booting}
-              retryAssistantMessage={retryAssistantMessage}
-              regenerateAssistantMessage={regenerateAssistantMessage}
+              disabled={booting || isTyping}
+              resolveChatAction={resolveChatAction}
             />
           )}
           </div>

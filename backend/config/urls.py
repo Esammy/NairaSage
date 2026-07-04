@@ -17,7 +17,9 @@ urlpatterns = [
     path("api/agent/", include("apps.agent_urls")),
     path("api/billing/", include("apps.billing.urls")),
     path("api/notify/", include("apps.notifications.urls")),
+    path("api/wealth/", include("apps.wealth.urls")),
     path("api/health/", include("core.health_urls")),
+    path("api/search/", include("apps.search.urls")),
 ]
 
 if settings.DEBUG:

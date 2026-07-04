@@ -38,9 +38,10 @@ export async function POST(request: Request) {
     });
 
     return nextResponse;
-  } catch (error: any) {
-    console.error("Register Proxy Error:", error.response?.data || error.message);
-    const status = error.response?.status || 400;
-    return NextResponse.json({ error: error.response?.data || 'Failed to register' }, { status });
+  } catch (error: unknown) {
+    const err = error as { response?: { data?: unknown; status?: number }; message?: string };
+    console.error("Register Proxy Error:", err.response?.data || err.message);
+    const status = err.response?.status || 400;
+    return NextResponse.json({ error: err.response?.data || 'Failed to register' }, { status });
   }
 }

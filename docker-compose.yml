@@ -1,7 +1,15 @@
-# Reference stack for local/prototype deploys. Point REDIS_URL at host Redis if you prefer not to use the redis service.
+# Stack for the Alibaba Cloud ECS deployment.
+# Default path: web + worker talk to the existing (Supabase) DATABASE_URL from
+# backend/.env — no data migration needed, the RAG corpus already lives there.
+# Self-contained path: `docker compose --profile localdb up -d` also starts a
+# co-located pgvector Postgres; point DATABASE_URL at it and load a pg_dump.
+# Caddy terminates TLS and proxies to web:8000 without buffering SSE.
 services:
+  # Optional co-located Postgres (RAG needs the pgvector `vector` extension).
+  # Only starts with `--profile localdb`. Off by default -> we use Supabase.
   db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
+    profiles: ["localdb"]
     environment:
       POSTGRES_USER: nairasage
       POSTGRES_PASSWORD: nairasage
@@ -10,43 +18,70 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
 
   web:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000
+    # gthread + high timeout so long SSE streams (coordinator orchestration,
+    # thinking-model deal analysis) are not cut off by gunicorn's 30s default.
+    # WEB_CONCURRENCY defaults to 2 to fit a 2GB free-trial ECS; raise it on a
+    # bigger box. threads carry the concurrent SSE connections cheaply.
+    command: >
+      gunicorn config.wsgi:application
+      --bind 0.0.0.0:8000
+      --workers ${WEB_CONCURRENCY:-2} --worker-class gthread --threads 8
+      --timeout 300 --graceful-timeout 30
     env_file:
       - ./backend/.env
     environment:
-      DATABASE_URL: postgres://nairasage:nairasage@db:5432/nairasage
+      # DATABASE_URL is intentionally NOT set here -> it comes from backend/.env
+      # (your Supabase URL). For the localdb profile, set it in .env to:
+      #   postgres://nairasage:nairasage@db:5432/nairasage
       REDIS_URL: redis://redis:6379/0
       DJANGO_SETTINGS_MODULE: config.settings.production
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     depends_on:
-      - db
       - redis
+    restart: unless-stopped
 
   worker:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: python manage.py rqworker default high low
+    command: python manage.py rqworker high default low
     env_file:
       - ./backend/.env
     environment:
-      DATABASE_URL: postgres://nairasage:nairasage@db:5432/nairasage
       REDIS_URL: redis://redis:6379/0
       DJANGO_SETTINGS_MODULE: config.settings.production
     depends_on:
-      - db
       - redis
+    restart: unless-stopped
+
+  # TLS termination for the ECS deployment. Set CADDY_DOMAIN (e.g.
+  # api.nairasage.example.com) and Caddy provisions Let's Encrypt
+  # certificates automatically. With no domain it serves plain :80.
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    command: caddy reverse-proxy --from ${CADDY_DOMAIN:-:80} --to web:8000
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+    restart: unless-stopped
 
 volumes:
   pgdata:
+  caddy_data:
+  caddy_config:

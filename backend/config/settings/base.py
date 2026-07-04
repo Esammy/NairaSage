@@ -32,17 +32,41 @@ LLM_SYNTHESIS_TEMPERATURE = env.float("LLM_SYNTHESIS_TEMPERATURE", default=0.2)
 MISTRAL_API_KEY = env("MISTRAL_API_KEY", default="")
 OPENAI_API_KEY = env("OPENAI_API_KEY", default="")
 GROQ_API_KEY = env("GROQ_API_KEY", default="")
+GEMINI_API_KEY = env("GEMINI_API_KEY", default="")
 MISTRAL_MODEL = env("MISTRAL_MODEL", default="mistral-large-latest")
 OPENAI_MODEL = env("OPENAI_MODEL", default="gpt-4o")
 GROQ_MODEL = env("GROQ_MODEL", default="llama-3.3-70b-versatile")
+GEMINI_MODEL = env("GEMINI_MODEL", default="gemini-2.5-flash")
 MISTRAL_ROUTING_MODEL = env("MISTRAL_ROUTING_MODEL", default="")
 OPENAI_ROUTING_MODEL = env("OPENAI_ROUTING_MODEL", default="")
 GROQ_ROUTING_MODEL = env("GROQ_ROUTING_MODEL", default="")
+GEMINI_ROUTING_MODEL = env("GEMINI_ROUTING_MODEL", default="")
+
+# Qwen Cloud (Alibaba Cloud Model Studio) via the OpenAI-compatible DashScope endpoint.
+DASHSCOPE_API_KEY = env("DASHSCOPE_API_KEY", default="")
+DASHSCOPE_BASE_URL = env(
+    "DASHSCOPE_BASE_URL",
+    default="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+)
+QWEN_MODEL = env("QWEN_MODEL", default="qwen-flash")
+QWEN_ROUTING_MODEL = env("QWEN_ROUTING_MODEL", default="")
+QWEN_SYNTHESIS_MODEL = env("QWEN_SYNTHESIS_MODEL", default="qwen3-max")
+QWEN_COACH_MODEL = env("QWEN_COACH_MODEL", default="qwen3-max")
+QWEN_VL_MODEL = env("QWEN_VL_MODEL", default="qwen3-vl-plus")
+QWEN_THINKING_MODEL = env("QWEN_THINKING_MODEL", default="qwen3-235b-a22b-thinking-2507")
+QWEN_EMBED_MODEL = env("QWEN_EMBED_MODEL", default="text-embedding-v4")
+QWEN_ASR_MODEL = env("QWEN_ASR_MODEL", default="qwen3-asr-flash-2026-02-10")
+
+# Tier-1 RAG embeddings: provider follows LLM_PROVIDER unless EMBEDDINGS_PROVIDER is set.
+EMBEDDINGS_PROVIDER = env("EMBEDDINGS_PROVIDER", default="")
 
 # Tier-1 RAG (Mistral embeddings) + Tavily web search (researcher agent)
 MISTRAL_EMBED_MODEL = env("MISTRAL_EMBED_MODEL", default="mistral-embed")
 MISTRAL_EMBED_DIMENSIONS = env.int("MISTRAL_EMBED_DIMENSIONS", default=1024)
 TAVILY_API_KEY = env("TAVILY_API_KEY", default="")
+
+# AssemblyAI streaming STT: mint short-lived tokens server-side (never expose API key in the browser).
+ASSEMBLYAI_API_KEY = env("ASSEMBLYAI_API_KEY", default="")
 
 FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:3000")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="webmaster@localhost")
@@ -85,6 +109,8 @@ INSTALLED_APPS = [
     "apps.debt",
     "apps.notifications",
     "apps.billing",
+    "apps.wealth",
+    "apps.search",
 ]
 
 # Tier-1 RAG requires PostgreSQL + pgvector (see docs/RAG.md). Omit on SQLite default dev/tests.
