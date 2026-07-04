@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Loader2 } from "lucide-react";
 
 export default function RegisterPage() {
@@ -97,7 +98,7 @@ export default function RegisterPage() {
               Password
             </label>
             <div className="mt-2">
-              <Input id="password" name="password" type="password" required className="bg-secondary/50 border-border focus-visible:ring-primary h-12" />
+              <PasswordInput id="password" name="password" autoComplete="new-password" required className="bg-secondary/50 border-border focus-visible:ring-primary h-12" />
             </div>
           </div>
 

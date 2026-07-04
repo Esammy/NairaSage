@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Loader2 } from "lucide-react";
 
 function IdleTimeoutNotice() {
@@ -101,10 +102,9 @@ function LoginForm() {
               </div>
             </div>
             <div className="mt-2">
-              <Input
+              <PasswordInput
                 id="password"
                 name="password"
-                type="password"
                 autoComplete="current-password"
                 required
                 className="bg-secondary/50 border-border focus-visible:ring-primary h-12"
