@@ -3,14 +3,20 @@
 import React, { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { BookOpen, Coins, Compass, Layers, Target } from "lucide-react";
+import { History, Plus } from "lucide-react";
 import { NairaSageChatPanel } from "@/components/agent/NairaSageChatPanel";
-import { useAgentStream } from "@/hooks/useAgentStream";
+import { ChatHistorySidebar } from "@/components/agent/ChatHistorySidebar";
+import { useAgentStream, type ChatMessage, type OutcomeTurn } from "@/hooks/useAgentStream";
+import { usePersistentCoachSession } from "@/hooks/usePersistentCoachSession";
+import { Button } from "@/components/ui/button";
+import { scanDocument, scanProposalsToActions } from "@/lib/document-scan";
 import { useStreamingBrowserTts } from "@/hooks/useStreamingBrowserTts";
 import { useVoiceChat } from "@/hooks/useVoiceChat";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CITATION_DISCLOSURE } from "@/lib/wealth";
 import { ExplainChip } from "@/components/wealth/ExplainChip";
 import { cancelSpeech, warmupSpeechSynthesis } from "@/lib/voice/tts";
+import { VOICE_MODE } from "@/lib/voice/qwen-transcribe";
 
 const SUGGESTED: Array<{ icon: React.ElementType; prompt: string }> = [
   { icon: Coins, prompt: "Help me turn one month of my savings into a cashflow asset." },
@@ -39,6 +45,8 @@ function WealthChatInner() {
   }, []);
 
   useEffect(() => {
+    // Qwen push-to-talk needs no pre-minted token; only AssemblyAI streaming does.
+    if (VOICE_MODE === "qwen") return;
     let cancelled = false;
     void fetch("/api/django/wealth/voice/token/", { credentials: "include" }).then((r) => {
       if (cancelled) return;
@@ -51,7 +59,16 @@ function WealthChatInner() {
     };
   }, []);
 
-  const { messages, sendMessage, isTyping, resolveChatAction, actionStrip } = useAgentStream({
+  const hydrateRef = useRef<(o: OutcomeTurn[]) => void>(() => {});
+  const { sessionId, sessions, startNewSession, openSession, refreshSessions } =
+    usePersistentCoachSession(hydrateRef);
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  const { messages, setMessages, sendMessage, isTyping, resolveChatAction, actionStrip, hydrateFromOutcomes } = useAgentStream({
+    sessionId,
+    onTurnComplete: () => {
+      void refreshSessions();
+    },
     onAssistantStreamStart: (messageId) => {
       if (!ttsEnabledRef.current) return;
       streamingTtsRef.current?.startTurn(messageId);
@@ -65,6 +82,9 @@ function WealthChatInner() {
       streamingTtsRef.current?.endTurn(messageId);
     },
   });
+  useEffect(() => {
+    hydrateRef.current = hydrateFromOutcomes;
+  }, [hydrateFromOutcomes]);
 
   const voiceChat = useVoiceChat({
     onFinal: (text) => {
@@ -96,6 +116,55 @@ function WealthChatInner() {
     setInput(prompt);
   };
 
+  const handleNewChat = useCallback(() => {
+    setInput("");
+    setHistoryOpen(false);
+    void startNewSession();
+  }, [startNewSession]);
+
+  const handleSelectSession = useCallback(
+    (id: number) => {
+      setHistoryOpen(false);
+      void openSession(id);
+    },
+    [openSession]
+  );
+
+  const [scanning, setScanning] = useState(false);
+
+  const handleAttach = async (file: File) => {
+    setScanning(true);
+    const stamp = Date.now();
+    setMessages((prev) => [
+      ...prev,
+      { id: `scan-u-${stamp}`, role: "user", content: `📎 Scanning ${file.name}…` },
+    ]);
+    try {
+      const result = await scanDocument(file);
+      const reply: ChatMessage = {
+        id: `scan-a-${stamp}`,
+        role: "assistant",
+        content:
+          result.summary ||
+          "I analyzed the document but could not extract anything actionable.",
+        topics: ["Document scan"],
+        actions: scanProposalsToActions(result),
+      };
+      setMessages((prev) => [...prev, reply]);
+    } catch (e) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `scan-a-${stamp}`,
+          role: "assistant",
+          content: e instanceof Error ? e.message : "Document scan failed. Please try again.",
+        },
+      ]);
+    } finally {
+      setScanning(false);
+    }
+  };
+
   const mediaOk =
     typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
   const voiceSupported = mediaOk && voiceBackendOk;
@@ -105,7 +174,17 @@ function WealthChatInner() {
   }, []);
 
   return (
-    <div className="space-y-4">
+    <div className="flex gap-4 items-start">
+      <aside className="hidden lg:flex flex-col w-64 shrink-0 sticky top-4 h-[calc(100dvh-2rem)] rounded-2xl border border-border bg-card/40 overflow-hidden">
+        <ChatHistorySidebar
+          sessions={sessions}
+          activeId={sessionId}
+          onNewChat={handleNewChat}
+          onSelect={handleSelectSession}
+        />
+      </aside>
+
+      <div className="flex-1 min-w-0 space-y-4">
       <header className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-foreground">NairaSage Coach</h1>
@@ -115,8 +194,38 @@ function WealthChatInner() {
           </p>
           <p className="text-[10px] text-muted-foreground mt-2 max-w-3xl">{CITATION_DISCLOSURE}</p>
         </div>
-        <ExplainChip prompt="Explain the coach chat page, tools, and how action confirmations work." />
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 lg:hidden">
+            <Button type="button" variant="outline" size="sm" className="gap-1" onClick={handleNewChat}>
+              <Plus className="h-4 w-4" />
+              New
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="gap-1"
+              onClick={() => setHistoryOpen((v) => !v)}
+              aria-expanded={historyOpen}
+            >
+              <History className="h-4 w-4" />
+              History
+            </Button>
+          </div>
+          <ExplainChip prompt="Explain the coach chat page, tools, and how action confirmations work." />
+        </div>
       </header>
+
+      {historyOpen && (
+        <div className="lg:hidden rounded-2xl border border-border bg-card/60 overflow-hidden max-h-[50vh]">
+          <ChatHistorySidebar
+            sessions={sessions}
+            activeId={sessionId}
+            onNewChat={handleNewChat}
+            onSelect={handleSelectSession}
+          />
+        </div>
+      )}
 
       {actionStrip.length > 0 && (
         <div
@@ -171,6 +280,15 @@ function WealthChatInner() {
           onSubmit={handleSend}
           isTyping={isTyping}
           resolveChatAction={resolveChatAction}
+          attach={{
+            busy: scanning,
+            onPick: (file) => {
+              void handleAttach(file);
+            },
+          }}
+          onSuggest={(text) => {
+            void sendMessage(text);
+          }}
           voice={{
             supported: voiceSupported,
             listening: voiceChat.listening,
@@ -183,6 +301,7 @@ function WealthChatInner() {
             clearError: voiceChat.clearError,
           }}
         />
+      </div>
       </div>
     </div>
   );

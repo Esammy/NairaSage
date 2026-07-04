@@ -147,7 +147,7 @@ class NextActionSerializer(serializers.ModelSerializer):
     class Meta:
         model = NextAction
         fields = "__all__"
-        read_only_fields = ("user", "created_at", "done_at")
+        read_only_fields = ("user", "created_at", "done_at", "priority")
 
 
 class CoachMemorySerializer(serializers.ModelSerializer):

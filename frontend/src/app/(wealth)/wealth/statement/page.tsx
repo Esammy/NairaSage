@@ -72,7 +72,7 @@ export default function WealthStatementPage() {
   };
 
   useEffect(() => {
-    load();
+    void Promise.resolve().then(load);
   }, []);
 
   const recompute = async () => {

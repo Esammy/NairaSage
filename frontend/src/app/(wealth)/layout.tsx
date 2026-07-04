@@ -5,6 +5,7 @@ import { WealthSidebar } from "@/components/wealth/WealthSidebar";
 import { TopBar } from "@/components/dashboard/TopBar";
 import { NairaSageQuickChat } from "@/components/agent/CoordinatorChat";
 import { CommandPalette } from "@/components/wealth/CommandPalette";
+import { IdleSessionWarning } from "@/components/layout/IdleSessionWarning";
 import { useIdleSessionLogout } from "@/hooks/useIdleSessionLogout";
 import { OPEN_WEALTH_COACH_EVENT } from "@/lib/wealth-coach";
 
@@ -17,7 +18,7 @@ export default function WealthLayout({
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [coachPrefill, setCoachPrefill] = useState<string | undefined>(undefined);
 
-  useIdleSessionLogout();
+  const { showWarning, extendSession, signOutNow } = useIdleSessionLogout();
 
   useEffect(() => {
     const h = (e: Event) => {
@@ -36,6 +37,7 @@ export default function WealthLayout({
   return (
     <div className="flex h-screen bg-background overflow-hidden relative">
       <CommandPalette />
+      <IdleSessionWarning open={showWarning} onExtend={extendSession} onSignOut={signOutNow} />
       {isSidebarOpen && (
         <div
           className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm lg:hidden"
@@ -56,6 +58,7 @@ export default function WealthLayout({
           onOpenChat={() => setIsChatOpen(true)}
           onMobileMenuToggle={() => setIsSidebarOpen(!isSidebarOpen)}
           askButtonLabel="Ask the Coach"
+          showQuickJump
         />
 
         <main className="flex-1 overflow-y-auto bg-background/50 p-4 sm:p-6 lg:p-8">

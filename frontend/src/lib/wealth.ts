@@ -155,6 +155,9 @@ export type WealthCockpit = {
   next_action: NextAction | null;
   milestones_catalog: Record<string, Array<{ key: string; title: string }>>;
   cockpit_trend?: CockpitTrend | null;
+  snapshot_updated_at?: string | null;
+  period_month?: string | null;
+  data_completeness?: number;
 };
 
 export type CoachMemoryRow = {

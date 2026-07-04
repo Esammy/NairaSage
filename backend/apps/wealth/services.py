@@ -205,14 +205,29 @@ NEXT_ACTION_BY_LEVEL = {
 }
 
 
+def _next_action_priority(level: int, phase: int | None = None) -> int:
+    """Lower number = more important. Level 0 is most urgent; phase can nudge."""
+    base = max(10, 45 - (level * 5))
+    if phase is not None and phase <= 2:
+        base = max(10, base - 5)
+    return base
+
+
 def suggest_next_action(user: User) -> Optional[NextAction]:
     """Create a NextAction for the user based on their current level.
 
     Skips creation if an identical open action already exists.
     """
-    level_obj = getattr(user, "investor_level", None)
-    level = level_obj.current_level if level_obj else 0
+    try:
+        level = user.investor_level.current_level
+    except InvestorLevel.DoesNotExist:
+        level = 0
+    try:
+        phase = user.rich_dad_phase.current_phase
+    except RichDadPhase.DoesNotExist:
+        phase = None
     spec = NEXT_ACTION_BY_LEVEL.get(level) or NEXT_ACTION_BY_LEVEL[0]
+    priority = _next_action_priority(level, phase)
 
     existing = NextAction.objects.filter(
         user=user, title=spec["title"], is_done=False, is_dismissed=False,
@@ -220,13 +235,26 @@ def suggest_next_action(user: User) -> Optional[NextAction]:
     if existing:
         return existing
 
-    return NextAction.objects.create(
+    action = NextAction.objects.create(
         user=user,
         title=spec["title"],
         body=spec["body"],
         cta_route=spec["cta_route"],
         target_level=level,
+        priority=priority,
     )
+    try:
+        from apps.notifications.services import notify
+
+        notify(
+            user,
+            "New next step ready",
+            spec["title"],
+            payload={"cta_route": spec["cta_route"], "next_action_id": action.pk},
+        )
+    except Exception:
+        pass
+    return action
 
 
 # --- Onboarding seeding ------------------------------------------------------

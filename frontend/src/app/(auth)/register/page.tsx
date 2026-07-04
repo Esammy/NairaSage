@@ -37,8 +37,8 @@ export default function RegisterPage() {
       // Successfully registered and logged in via proxy
       router.push("/onboard");
       router.refresh();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Registration failed.");
     } finally {
       setLoading(false);
     }

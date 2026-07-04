@@ -111,6 +111,15 @@ class Command(BaseCommand):
             action="store_true",
             help="Parse and chunk only; do not write to the database",
         )
+        parser.add_argument(
+            "--flush",
+            action="store_true",
+            help=(
+                "Delete ALL existing chunks before ingesting. Required when the "
+                "embedding provider/model changes (vectors from different models "
+                "live in different cosine spaces and must not be mixed)."
+            ),
+        )
 
     def handle(self, *args, **options) -> None:
         if connection.vendor != "postgresql":
@@ -136,10 +145,25 @@ class Command(BaseCommand):
             raise CommandError(f"No PDF files in {books_dir}")
 
         from apps.knowledge.models import KnowledgeChunk
-        from core.embeddings_factory import get_embedding_model
+        from core.embeddings_factory import get_embedding_model, get_embeddings_provider
+        from core.llm_factory import _env_or_setting
 
         embed_model = get_embedding_model()
-        embed_name = getattr(settings, "MISTRAL_EMBED_MODEL", "mistral-embed")
+        provider = get_embeddings_provider()
+        if provider == "qwen":
+            embed_name = _env_or_setting("QWEN_EMBED_MODEL", "text-embedding-v4")
+        else:
+            embed_name = getattr(settings, "MISTRAL_EMBED_MODEL", "mistral-embed")
+
+        if options["flush"] and not options["dry_run"]:
+            deleted, _ = KnowledgeChunk.objects.all().delete()
+            self.stdout.write(f"Flushed {deleted} existing chunks\n")
+        stale = KnowledgeChunk.objects.exclude(embedding_model=embed_name)
+        if stale.exists() and not options["flush"]:
+            raise CommandError(
+                f"Found chunks embedded with a different model than {embed_name!r}. "
+                "Mixed-model vectors silently degrade retrieval; re-run with --flush."
+            )
 
         total_chunks = 0
         for pdf in pdfs:

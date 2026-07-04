@@ -1,22 +1,50 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-/** 30 minutes without pointer/keyboard/touch/wheel input → sign out (matches product policy). */
+/** 30 minutes without input → sign out; warning at 25 minutes. */
 const IDLE_MS = 30 * 60 * 1000;
+const WARNING_MS = 25 * 60 * 1000;
 const CHECK_INTERVAL_MS = 15_000;
 
+async function performLogout() {
+  try {
+    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+  } catch {
+    /* still redirect */
+  }
+  window.location.assign("/login?reason=timeout");
+}
+
 /**
- * Signs the user out after a period of no engagement while this dashboard layout is mounted.
- * Tab hidden: timer pauses (no interval ticks); returning after long absence still evaluates idle from last activity.
+ * Signs the user out after idle time while layout is mounted.
+ * Shows a soft warning before the hard logout.
  */
 export function useIdleSessionLogout() {
-  const lastActivityRef = useRef(Date.now());
+  // 0 = "not yet marked"; stamped on mount and on every user input event.
+  const lastActivityRef = useRef(0);
   const loggingOutRef = useRef(false);
+  const [showWarning, setShowWarning] = useState(false);
+
+  const extendSession = useCallback(() => {
+    lastActivityRef.current = Date.now();
+    setShowWarning(false);
+    void fetch("/api/auth/refresh", { method: "POST", credentials: "include" }).catch(() => {
+      /* client timer reset still helps; refresh extends server JWT when cookies exist */
+    });
+  }, []);
+
+  const signOutNow = useCallback(() => {
+    if (loggingOutRef.current) return;
+    loggingOutRef.current = true;
+    void performLogout();
+  }, []);
 
   useEffect(() => {
+    lastActivityRef.current = Date.now();
     const mark = () => {
       lastActivityRef.current = Date.now();
+      setShowWarning(false);
     };
 
     const events: (keyof WindowEventMap)[] = [
@@ -33,16 +61,16 @@ export function useIdleSessionLogout() {
     const id = window.setInterval(() => {
       if (document.visibilityState === "hidden") return;
       if (loggingOutRef.current) return;
-      if (Date.now() - lastActivityRef.current < IDLE_MS) return;
-      loggingOutRef.current = true;
-      void (async () => {
-        try {
-          await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
-        } catch {
-          /* still redirect */
-        }
-        window.location.assign("/login?reason=timeout");
-      })();
+
+      const idle = Date.now() - lastActivityRef.current;
+      if (idle >= IDLE_MS) {
+        loggingOutRef.current = true;
+        void performLogout();
+        return;
+      }
+      if (idle >= WARNING_MS) {
+        setShowWarning(true);
+      }
     }, CHECK_INTERVAL_MS);
 
     return () => {
@@ -52,4 +80,6 @@ export function useIdleSessionLogout() {
       window.clearInterval(id);
     };
   }, []);
+
+  return { showWarning, extendSession, signOutNow };
 }

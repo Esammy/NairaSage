@@ -45,7 +45,7 @@ export default function DealsPage() {
   };
 
   useEffect(() => {
-    load();
+    void Promise.resolve().then(load);
   }, []);
 
   const create = async () => {

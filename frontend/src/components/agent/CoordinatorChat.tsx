@@ -3,14 +3,17 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Maximize2 } from "lucide-react";
+import { X, Maximize2, Plus, History } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useAgentStream } from "@/hooks/useAgentStream";
+import { useAgentStream, type OutcomeTurn } from "@/hooks/useAgentStream";
+import { usePersistentCoachSession } from "@/hooks/usePersistentCoachSession";
 import { useStreamingBrowserTts } from "@/hooks/useStreamingBrowserTts";
 import { useVoiceChat } from "@/hooks/useVoiceChat";
 import { NairaSageChatPanel } from "@/components/agent/NairaSageChatPanel";
+import { ChatHistorySidebar } from "@/components/agent/ChatHistorySidebar";
 import { cancelSpeech, warmupSpeechSynthesis } from "@/lib/voice/tts";
+import { VOICE_MODE } from "@/lib/voice/qwen-transcribe";
 
 /** Slide-over quick chat; full-page chat lives at `/dashboard/chat`. */
 export function NairaSageQuickChat({
@@ -42,6 +45,8 @@ export function NairaSageQuickChat({
   }, []);
 
   useEffect(() => {
+    // Qwen push-to-talk needs no pre-minted token; only AssemblyAI streaming does.
+    if (VOICE_MODE === "qwen") return;
     let cancelled = false;
     void fetch("/api/django/wealth/voice/token/", { credentials: "include" }).then((r) => {
       if (cancelled) return;
@@ -54,7 +59,16 @@ export function NairaSageQuickChat({
     };
   }, []);
 
-  const { messages, sendMessage, isTyping, resolveChatAction } = useAgentStream({
+  const hydrateRef = useRef<(o: OutcomeTurn[]) => void>(() => {});
+  const { sessionId, sessions, startNewSession, openSession, refreshSessions } =
+    usePersistentCoachSession(hydrateRef);
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  const { messages, sendMessage, isTyping, resolveChatAction, hydrateFromOutcomes } = useAgentStream({
+    sessionId,
+    onTurnComplete: () => {
+      void refreshSessions();
+    },
     onAssistantStreamStart: (messageId) => {
       if (!ttsEnabledRef.current) return;
       streamingTtsRef.current?.startTurn(messageId);
@@ -68,6 +82,9 @@ export function NairaSageQuickChat({
       streamingTtsRef.current?.endTurn(messageId);
     },
   });
+  useEffect(() => {
+    hydrateRef.current = hydrateFromOutcomes;
+  }, [hydrateFromOutcomes]);
 
   const voiceChat = useVoiceChat({
     onFinal: (text) => {
@@ -84,8 +101,11 @@ export function NairaSageQuickChat({
 
   useEffect(() => {
     if (isOpen && coachPrefill !== undefined && coachPrefill !== "") {
-      setInput(coachPrefill);
-      onConsumePrefill?.();
+      // Deferred so the prefill lands without a sync re-render of the drawer.
+      void Promise.resolve().then(() => {
+        setInput(coachPrefill);
+        onConsumePrefill?.();
+      });
     }
   }, [isOpen, coachPrefill, onConsumePrefill]);
 
@@ -103,6 +123,20 @@ export function NairaSageQuickChat({
     void sendMessage(input);
     setInput("");
   };
+
+  const handleNewChat = useCallback(() => {
+    setInput("");
+    setHistoryOpen(false);
+    void startNewSession();
+  }, [startNewSession]);
+
+  const handleSelectSession = useCallback(
+    (id: number) => {
+      setHistoryOpen(false);
+      void openSession(id);
+    },
+    [openSession]
+  );
 
   const mediaOk =
     typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
@@ -130,7 +164,23 @@ export function NairaSageQuickChat({
             transition={{ type: "spring", bounce: 0.3, duration: 0.5 }}
             className="fixed bottom-4 right-4 sm:bottom-8 sm:right-8 w-full max-w-[450px] lg:max-w-lg h-[600px] max-h-[85vh] z-50 glass-panel rounded-2xl flex flex-col shadow-2xl border border-primary/20 overflow-hidden"
           >
-            <div className="flex flex-1 flex-col min-h-0">
+            <div className="relative flex flex-1 flex-col min-h-0">
+              {historyOpen && (
+                <>
+                  <div
+                    className="absolute inset-0 z-20 bg-background/40"
+                    onClick={() => setHistoryOpen(false)}
+                  />
+                  <div className="absolute top-14 left-2 right-2 z-30 max-h-[70%] rounded-xl border border-border bg-card shadow-xl overflow-hidden flex flex-col">
+                    <ChatHistorySidebar
+                      sessions={sessions}
+                      activeId={sessionId}
+                      onNewChat={handleNewChat}
+                      onSelect={handleSelectSession}
+                    />
+                  </div>
+                </>
+              )}
               <NairaSageChatPanel
                 variant="drawer"
                 title="NairaSage Coach"
@@ -141,6 +191,9 @@ export function NairaSageQuickChat({
                 onSubmit={handleSend}
                 isTyping={isTyping}
                 resolveChatAction={resolveChatAction}
+                onSuggest={(text) => {
+                  void sendMessage(text);
+                }}
                 voice={{
                   supported: voiceSupported,
                   listening: voiceChat.listening,
@@ -154,6 +207,27 @@ export function NairaSageQuickChat({
                 }}
                 headerActions={
                   <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={handleNewChat}
+                      className="rounded-full"
+                      title="New chat"
+                      aria-label="New chat"
+                    >
+                      <Plus className="h-5 w-5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setHistoryOpen((v) => !v)}
+                      className={cn("rounded-full", historyOpen && "bg-secondary")}
+                      title="Conversation history"
+                      aria-label="Conversation history"
+                      aria-expanded={historyOpen}
+                    >
+                      <History className="h-5 w-5" />
+                    </Button>
                     <Link
                       href="/wealth/chat"
                       onClick={onClose}

@@ -7,20 +7,16 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { FreedomRatioGauge } from "@/components/wealth/FreedomRatioGauge";
 import { FinancialStatementDiagram } from "@/components/wealth/FinancialStatementDiagram";
-import {
-  INVESTOR_LEVELS,
-  PHASES,
-  formatNaira,
-  wealthFetch,
-  CITATION_DISCLOSURE,
-} from "@/lib/wealth";
+import { CockpitMoreMenu } from "@/components/wealth/CockpitMoreMenu";
+import { INVESTOR_LEVELS, PHASES, formatNaira, wealthFetch } from "@/lib/wealth";
 import type { WealthCockpit, NextAction } from "@/lib/wealth";
-import { ExplainChip } from "@/components/wealth/ExplainChip";
 import { AskCoachLink } from "@/components/wealth/AskCoachLink";
+import { openWealthCoach } from "@/lib/wealth-coach";
 
 function CockpitSkeleton() {
   return (
     <div className="space-y-6 animate-pulse">
+      <div className="h-24 bg-muted rounded-xl w-full" />
       <div className="h-10 bg-muted rounded-md w-2/3 max-w-md" />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-1">
@@ -39,6 +35,12 @@ function CockpitSkeleton() {
       </div>
     </div>
   );
+}
+
+function formatPeriodMonth(periodMonth: string) {
+  const [y, m] = periodMonth.split("-").map(Number);
+  if (!y || !m) return periodMonth;
+  return new Date(y, m - 1, 1).toLocaleDateString("en-NG", { month: "long", year: "numeric" });
 }
 
 export default function WealthCockpitPage() {
@@ -96,45 +98,56 @@ export default function WealthCockpitPage() {
 
   const delta = cockpit_trend?.freedom_ratio_delta;
   const hasTrend = typeof delta === "number" && !Number.isNaN(delta);
+  const snapshotLabel =
+    data.period_month
+      ? formatPeriodMonth(data.period_month)
+      : snapshot.period_month
+        ? formatPeriodMonth(snapshot.period_month)
+        : null;
+  const completenessPct =
+    typeof data.data_completeness === "number"
+      ? Math.round(data.data_completeness * 100)
+      : null;
+
+  const coachPrompt = next_action
+    ? `Help me with my next action: ${next_action.title}. ${next_action.body}`
+    : "What should I focus on this week based on my wealth cockpit?";
 
   return (
     <div className="space-y-6">
+      <header className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Wealth Cockpit</h1>
+          <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
+            Passive income vs expenses, your level, phase, and one clear next step.
+          </p>
+          {snapshotLabel ? (
+            <p className="text-xs text-muted-foreground mt-1">Snapshot as of {snapshotLabel}</p>
+          ) : null}
+          {completenessPct !== null ? (
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Statement {completenessPct}% complete — add missing figures for sharper coach guidance.
+            </p>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-2">
+          <AskCoachLink title="my next action" className="shrink-0" />
+          <CockpitMoreMenu />
+        </div>
+      </header>
+
       {hasTrend && (
         <div
           className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-foreground"
           role="status"
         >
           <span className="font-medium">This month: </span>
-          Freedom Ratio {delta >= 0 ? "up" : "down"}{" "}
-          {Math.abs(delta).toFixed(3)} vs prior snapshot
-          {cockpit_trend?.prior_period_month
-            ? ` (${cockpit_trend.prior_period_month}).`
-            : "."}{" "}
-          Based on principles from Rich Dad&apos;s Guide to Investing by Robert Kiyosaki (cited reference).
+          Freedom Ratio {delta >= 0 ? "up" : "down"} {Math.abs(delta).toFixed(3)} vs prior snapshot
+          {cockpit_trend?.prior_period_month ? ` (${cockpit_trend.prior_period_month}).` : "."}
         </div>
       )}
 
-      <header className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Wealth Cockpit</h1>
-          <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-            See where you stand: passive income vs expenses, level, phase, and your next action.
-            Frameworks are cited as educational references — {CITATION_DISCLOSURE.slice(0, 72)}…
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <ExplainChip prompt="Explain the Wealth Cockpit page and what Freedom Ratio means for me." />
-          <AskCoachLink title="Wealth Cockpit" />
-          <Link href="/wealth/statement">
-            <Button variant="outline" size="sm">
-              Open full statement
-            </Button>
-          </Link>
-          <Link href="/wealth/chat">
-            <Button size="sm">Coach chat</Button>
-          </Link>
-        </div>
-      </header>
+      <NextActionCard action={next_action} coachPrompt={coachPrompt} prominent />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-1 w-full">
@@ -155,7 +168,9 @@ export default function WealthCockpitPage() {
             <div className="grid grid-cols-2 gap-2 mt-4 text-center w-full">
               <div className="rounded-md border border-border bg-background/40 p-2">
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Passive</div>
-                <div className="text-sm font-semibold tabular-nums">{formatNaira(snapshot.passive_income)}</div>
+                <div className="text-sm font-semibold tabular-nums">
+                  {formatNaira(snapshot.passive_income)}
+                </div>
               </div>
               <div className="rounded-md border border-border bg-background/40 p-2">
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Expenses</div>
@@ -170,7 +185,7 @@ export default function WealthCockpitPage() {
             <div>
               <CardTitle className="text-base">Mini statement</CardTitle>
               <CardDescription className="text-xs hidden lg:block">
-                Your personal financial statement summary for this month (educational framework).
+                Your personal financial statement summary for this month.
               </CardDescription>
             </div>
             <Link href="/wealth/statement" className="text-xs text-primary hover:underline shrink-0">
@@ -193,10 +208,9 @@ export default function WealthCockpitPage() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <LevelBadge level={level.current_level} label={levelMeta?.name} blurb={levelMeta?.blurb} />
         <PhaseCard phase={phase.current_phase} label={phaseMeta?.title} blurb={phaseMeta?.blurb} />
-        <NextActionCard action={next_action} />
       </div>
     </div>
   );
@@ -207,15 +221,14 @@ function LevelBadge({ level, label, blurb }: { level: number; label?: string; bl
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Investor Level</CardTitle>
-        <CardDescription className="text-xs">Seven-rung ladder (0–6), cited reference framework</CardDescription>
+        <CardDescription className="text-xs">Seven-rung ladder (0–6)</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="flex items-center gap-4">
           <div
-            className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary text-2xl font-bold border-2 border-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary text-2xl font-bold border-2 border-primary"
             role="img"
             aria-label={`Investor level ${level}`}
-            tabIndex={0}
           >
             {level}
           </div>
@@ -237,7 +250,7 @@ function PhaseCard({ phase, label, blurb }: { phase: number; label?: string; blu
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Current Phase</CardTitle>
-        <CardDescription className="text-xs">Five-phase investor plan (cited reference)</CardDescription>
+        <CardDescription className="text-xs">Five-phase investor plan</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="flex items-center gap-2 mb-3" role="list" aria-label="Phase progress">
@@ -246,13 +259,13 @@ function PhaseCard({ phase, label, blurb }: { phase: number; label?: string; blu
               key={p}
               role="listitem"
               aria-label={`Phase ${p} ${p <= (phase || 0) ? "reached" : "not reached"}`}
-              className={`h-2 flex-1 rounded-full ${
-                p <= (phase || 0) ? "bg-primary" : "bg-muted"
-              }`}
+              className={`h-2 flex-1 rounded-full ${p <= (phase || 0) ? "bg-primary" : "bg-muted"}`}
             />
           ))}
         </div>
-        <div className="text-sm font-semibold">Phase {phase} - {label}</div>
+        <div className="text-sm font-semibold">
+          Phase {phase} - {label}
+        </div>
         <div className="text-xs text-muted-foreground mt-1">{blurb}</div>
         <Link href="/wealth/path" className="text-xs text-primary hover:underline inline-flex items-center gap-1 mt-3">
           Open the path <ArrowRight className="h-3 w-3" />
@@ -262,38 +275,58 @@ function PhaseCard({ phase, label, blurb }: { phase: number; label?: string; blu
   );
 }
 
-function NextActionCard({ action }: { action: NextAction | null }) {
+function NextActionCard({
+  action,
+  coachPrompt,
+  prominent = false,
+}: {
+  action: NextAction | null;
+  coachPrompt: string;
+  prominent?: boolean;
+}) {
+  const shell = prominent
+    ? "border-2 border-primary/40 bg-primary/5 shadow-lg shadow-gold-500/10"
+    : "";
+
   return (
-    <Card>
+    <Card className={shell}>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">Next Action</CardTitle>
-        <CardDescription className="text-xs">One concrete step your coach recommends.</CardDescription>
+        <CardTitle className="text-lg">Your next action</CardTitle>
+        <CardDescription className="text-xs">One concrete step — start here.</CardDescription>
       </CardHeader>
       <CardContent>
         {action ? (
           <>
-            <div className="text-sm font-semibold text-foreground">{action.title}</div>
-            <p className="text-xs text-muted-foreground mt-2 line-clamp-4">
-              {action.body}
-            </p>
-            <Link href={action.cta_route || "/wealth/chat"}>
-              <Button size="sm" className="mt-3 w-full">
-                Work on it
-                <ArrowRight className="ml-1 h-3 w-3" />
+            <div className="text-base font-semibold text-foreground">{action.title}</div>
+            <p className="text-sm text-muted-foreground mt-2">{action.body}</p>
+            <div className="mt-4 flex flex-col sm:flex-row gap-2">
+              <Link href={action.cta_route || "/wealth/chat"} className="flex-1">
+                <Button className="w-full">
+                  Work on it
+                  <ArrowRight className="ml-1 h-4 w-4" />
+                </Button>
+              </Link>
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                onClick={() => openWealthCoach(coachPrompt)}
+              >
+                Ask coach about this
               </Button>
-            </Link>
+            </div>
           </>
         ) : (
-          <div className="flex flex-col items-center py-4 text-muted-foreground">
-            <CheckCircle2 className="h-8 w-8 mb-2 text-emerald-400" aria-hidden />
-            <p className="text-sm text-center">
-              No open next action. Open the coach for a fresh step or add data on your statement.
-            </p>
-            <Link href="/wealth/chat" className="mt-3">
-              <Button size="sm" variant="outline">
-                Ask the coach
-              </Button>
-            </Link>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+            <div className="flex items-start gap-3 flex-1">
+              <CheckCircle2 className="h-8 w-8 text-emerald-400 shrink-0" aria-hidden />
+              <p className="text-sm text-muted-foreground">
+                No open next action. Ask the coach for a fresh step or update your statement.
+              </p>
+            </div>
+            <Button type="button" variant="outline" onClick={() => openWealthCoach(coachPrompt)}>
+              Ask the coach
+            </Button>
           </div>
         )}
       </CardContent>

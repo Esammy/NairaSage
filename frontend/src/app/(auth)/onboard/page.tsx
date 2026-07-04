@@ -89,6 +89,7 @@ export default function RichDadDiscoveryPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
   const [answers, setAnswers] = useState<Answers>({
     owns_business: false,
     has_cashflow_assets: false,
@@ -145,10 +146,23 @@ export default function RichDadDiscoveryPage() {
     } catch (e) {
       console.error("Wealth onboarding request errored", e);
     } finally {
-      // Even on error we still want to get the user into the Wealth Cockpit;
-      // server-side defaults will kick in on next read.
-      router.push("/wealth");
+      setLoading(false);
+      setSuccess(true);
+      window.setTimeout(() => router.push("/wealth"), 1800);
     }
+  }
+
+  if (success) {
+    return (
+      <div className="animate-in fade-in zoom-in-95 duration-500 max-w-xl mx-auto w-full pt-24 text-center px-6">
+        <CheckCircle2 className="h-16 w-16 text-emerald-500 mx-auto mb-4" aria-hidden />
+        <h2 className="text-2xl font-bold text-foreground">You are all set</h2>
+        <p className="mt-3 text-sm text-muted-foreground">
+          Your Wealth Cockpit is ready. Opening it now…
+        </p>
+        <Loader2 className="h-6 w-6 animate-spin text-primary mx-auto mt-6" aria-hidden />
+      </div>
+    );
   }
 
   return (

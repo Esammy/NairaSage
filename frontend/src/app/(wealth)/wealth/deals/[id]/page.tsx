@@ -6,9 +6,9 @@ import { useParams } from "next/navigation";
 import { Loader2, Save, ArrowLeft } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import type { Deal, InvestorControls } from "@/lib/wealth";
 import { formatNaira, wealthFetch } from "@/lib/wealth";
+import { DealDeepAnalysis, type DeepAnalysisScores } from "@/components/wealth/DealDeepAnalysis";
 
 const CONTROLS: Array<{ key: keyof InvestorControls; n: number; title: string; blurb: string }> = [
   { key: "control_1_self", n: 1, title: "Control over yourself", blurb: "Education, emotions, patience. The first and biggest control." },
@@ -50,6 +50,18 @@ export default function DealDetailPage() {
     if (!controls) return;
     const clamped = Math.max(0, Math.min(3, v));
     setControls({ ...controls, [k]: clamped });
+  };
+
+  const applyAiScores = (ai: DeepAnalysisScores) => {
+    if (!controls) return;
+    const next = { ...controls };
+    for (const c of CONTROLS) {
+      const v = ai.scores[c.key];
+      if (typeof v === "number") {
+        (next as Record<string, unknown>)[c.key as string] = Math.max(0, Math.min(3, v));
+      }
+    }
+    setControls(next);
   };
 
   const save = async () => {
@@ -98,6 +110,8 @@ export default function DealDetailPage() {
         <Stat label="Projected monthly cashflow" value={formatNaira(deal.projected_monthly_cashflow)} tone="ok" />
         <Stat label="10 Controls" value={`${total} / 30 (${pct}%)`} tone={pct >= 67 ? "ok" : pct >= 34 ? "neutral" : "bad"} />
       </div>
+
+      <DealDeepAnalysis dealId={id} onApplyScores={applyAiScores} />
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">

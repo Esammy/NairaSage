@@ -30,3 +30,8 @@ frontend/out/
 *.swp
 .DS_Store
 backend/books
+
+# Private strategy docs — keep out of the public hackathon repo
+Business plan.txt
+*.business-plan.*
+docs/

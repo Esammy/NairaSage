@@ -95,9 +95,9 @@ function LoginForm() {
                 Password
               </label>
               <div className="text-sm">
-                <a href="#" className="font-semibold text-primary hover:text-gold-600">
+                <Link href="/forgot-password" className="font-semibold text-primary hover:text-gold-600">
                   Forgot password?
-                </a>
+                </Link>
               </div>
             </div>
             <div className="mt-2">

@@ -34,9 +34,10 @@ export async function POST(request: Request) {
     });
 
     return nextResponse;
-  } catch (error: any) {
-    console.error("Login Proxy Error:", error.response?.data || error.message);
-    const status = error.response?.status || 401;
+  } catch (error: unknown) {
+    const err = error as { response?: { data?: unknown; status?: number }; message?: string };
+    console.error("Login Proxy Error:", err.response?.data || err.message);
+    const status = err.response?.status || 401;
     return NextResponse.json({ error: 'Invalid credentials' }, { status });
   }
 }

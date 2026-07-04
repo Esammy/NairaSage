@@ -12,7 +12,6 @@ import {
   CheckCircle2,
   BarChart3,
   Clock,
-  LineChart,
   Target,
   Lock,
   LayoutDashboard,
@@ -142,6 +141,20 @@ export default function LandingPage() {
               </Link>
             )}
           </div>
+          <ul className="mt-8 flex flex-col sm:flex-row flex-wrap items-center justify-center gap-4 sm:gap-8 text-sm text-muted-foreground max-w-2xl mx-auto">
+            <li className="flex items-center gap-2">
+              <Clock className="h-4 w-4 text-primary shrink-0" aria-hidden />
+              Save hours on money decisions each week
+            </li>
+            <li className="flex items-center gap-2">
+              <BarChart3 className="h-4 w-4 text-primary shrink-0" aria-hidden />
+              One cockpit for income, expenses, and next steps
+            </li>
+            <li className="flex items-center gap-2">
+              <Target className="h-4 w-4 text-primary shrink-0" aria-hidden />
+              Calm, cited guidance — not hype
+            </li>
+          </ul>
           <p className="mt-6 text-sm text-muted-foreground flex items-center justify-center gap-2">
             <Shield className="w-4 h-4 text-emerald-500" /> Bank-grade security. Read-only access.
           </p>
@@ -183,7 +196,7 @@ export default function LandingPage() {
               </div>
               <h3 className="text-xl font-bold text-foreground mb-3">Missed Opportunities</h3>
               <p className="text-muted-foreground leading-relaxed">
-                You don't have time to monitor FGN Bonds, T-Bill rates, or new grants all day. Our Opportunity Scout never sleeps, hunting the internet to bring you personalized, high ROI alerts.
+                You don&apos;t have time to monitor FGN Bonds, T-Bill rates, or new grants all day. Our Opportunity Scout never sleeps, hunting the internet to bring you personalized, high ROI alerts.
               </p>
             </div>
           </div>
@@ -200,7 +213,7 @@ export default function LandingPage() {
                 <span className="text-primary">An entire financial firm in your pocket.</span>
               </h2>
               <p className="text-lg text-muted-foreground mb-8">
-                NairaSage doesn't just give generic advice. By securely connecting to your bank via open banking, we build your unique <strong>Financial DNA</strong> and bring together accounting, investing, tax, behaviour, and other disciplines so you can put every Kobo to better use.
+                NairaSage doesn&apos;t just give generic advice. By securely connecting to your bank via open banking, we build your unique <strong>Financial DNA</strong> and bring together accounting, investing, tax, behaviour, and other disciplines so you can put every Kobo to better use.
               </p>
               
               <ul className="space-y-6">
@@ -239,7 +252,7 @@ export default function LandingPage() {
                   
                   <div className="flex-1 space-y-4">
                     <div className="bg-secondary p-4 rounded-tl-sm rounded-2xl w-[85%] text-sm text-secondary-foreground border border-border/50">
-                      I noticed your current account balance hit ₦850k today. You have an under-allocated emergency fund. I've found an 18.5% yield Money Market Fund. Should I instruct the execution protocol to map ₦300k there?
+                      I noticed your current account balance hit ₦850k today. You have an under-allocated emergency fund. I&apos;ve found an 18.5% yield Money Market Fund. Should I instruct the execution protocol to map ₦300k there?
                     </div>
                     <div className="flex justify-start gap-2 mt-2 pl-2">
                        <span className="text-[10px] bg-primary/10 text-primary border border-primary/20 px-2 py-1 rounded-full flex items-center gap-1"><Sparkles className="w-3 h-3"/> Accountant</span>
@@ -343,9 +356,15 @@ export default function LandingPage() {
             <span className="ml-2">© {new Date().getFullYear()} NairaSage Tech.</span>
           </div>
           <div className="flex gap-6">
-            <a href="#" className="hover:text-primary transition-colors">Privacy</a>
-            <a href="#" className="hover:text-primary transition-colors">Terms of Service</a>
-            <a href="#" className="hover:text-primary transition-colors">Security Details</a>
+            <Link href="/privacy" className="hover:text-primary transition-colors">
+              Privacy
+            </Link>
+            <Link href="/terms" className="hover:text-primary transition-colors">
+              Terms of Service
+            </Link>
+            <Link href="/security" className="hover:text-primary transition-colors">
+              Security Details
+            </Link>
           </div>
         </div>
         <div className="mx-auto max-w-7xl px-6 mt-8 text-xs opacity-60 text-center md:text-left">

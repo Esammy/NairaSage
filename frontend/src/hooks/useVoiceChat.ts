@@ -9,6 +9,7 @@ import {
   type TurnHandlers,
 } from "@/lib/voice/assemblyai-browser";
 import { createMicrophone, type Microphone } from "@/lib/voice/microphone";
+import { VOICE_MODE, transcribePcmChunks } from "@/lib/voice/qwen-transcribe";
 
 export function useVoiceChat(opts: {
   onFinal: (text: string) => void;
@@ -25,6 +26,8 @@ export function useVoiceChat(opts: {
   const partialRef = useRef("");
   const dupGuardRef = useRef<{ text: string; at: number } | null>(null);
   const reconnectAttemptedRef = useRef(false);
+  const pcmChunksRef = useRef<Int16Array[]>([]);
+  const transcribingRef = useRef(false);
   const optsRef = useRef(opts);
   optsRef.current = opts;
 
@@ -38,6 +41,7 @@ export function useVoiceChat(opts: {
     if (t) {
       void t.close(false).catch(() => {});
     }
+    pcmChunksRef.current = [];
     listeningRef.current = false;
     setListening(false);
     setPartial("");
@@ -48,6 +52,69 @@ export function useVoiceChat(opts: {
   const stop = useCallback(() => {
     cleanupSession();
   }, [cleanupSession]);
+
+  /** Qwen push-to-talk: first tap records, second tap uploads + transcribes. */
+  const startQwen = useCallback(async () => {
+    if (listeningRef.current || transcribingRef.current) return;
+    setError(null);
+    const mic = createMicrophone();
+    micRef.current = mic;
+    try {
+      await mic.requestPermission();
+    } catch {
+      setError("Microphone permission is required for voice.");
+      micRef.current = null;
+      return;
+    }
+    pcmChunksRef.current = [];
+    listeningRef.current = true;
+    setListening(true);
+    setPartial("Listening — tap the mic again when you finish speaking");
+    optsRef.current.onBargeIn?.();
+    try {
+      await mic.startRecording(
+        (chunk) => {
+          if (listeningRef.current) pcmChunksRef.current.push(chunk);
+        },
+        (rms) => setLevel(Math.min(1, rms * 10))
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not start voice");
+      cleanupSession();
+    }
+  }, [cleanupSession]);
+
+  const finishQwen = useCallback(async () => {
+    if (!listeningRef.current || transcribingRef.current) return;
+    const chunks = pcmChunksRef.current;
+    pcmChunksRef.current = [];
+    micRef.current?.stopRecording();
+    micRef.current = null;
+    listeningRef.current = false;
+    setLevel(0);
+    if (!chunks.length) {
+      setListening(false);
+      setPartial("");
+      return;
+    }
+    transcribingRef.current = true;
+    setPartial("Transcribing…");
+    try {
+      const text = await transcribePcmChunks(chunks);
+      if (text) {
+        optsRef.current.onFinal(text);
+      } else {
+        setError("I didn't catch that — please try again.");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Transcription failed.");
+    } finally {
+      transcribingRef.current = false;
+      setListening(false);
+      setPartial("");
+      partialRef.current = "";
+    }
+  }, []);
 
   const buildHandlers = useCallback((): TurnHandlers => {
     return {
@@ -98,6 +165,10 @@ export function useVoiceChat(opts: {
   }, [cleanupSession]);
 
   const start = useCallback(async () => {
+    if (VOICE_MODE === "qwen") {
+      await startQwen();
+      return;
+    }
     if (listeningRef.current) return;
     setError(null);
     reconnectAttemptedRef.current = false;
@@ -141,15 +212,23 @@ export function useVoiceChat(opts: {
       setError(msg);
       cleanupSession();
     }
-  }, [buildHandlers, cleanupSession]);
+  }, [buildHandlers, cleanupSession, startQwen]);
 
   const toggle = useCallback(() => {
+    if (VOICE_MODE === "qwen") {
+      if (listeningRef.current) {
+        void finishQwen();
+      } else {
+        void startQwen();
+      }
+      return;
+    }
     if (listeningRef.current) {
       stop();
     } else {
       void start();
     }
-  }, [start, stop]);
+  }, [start, stop, startQwen, finishQwen]);
 
   useEffect(() => {
     return () => {

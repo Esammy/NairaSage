@@ -27,6 +27,7 @@ from apps.wealth.actions import (
     create_proposal,
     execute_read_tool,
 )
+from core.llm_factory import get_coach_llm
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,12 @@ class RichDadCoachAgent(BaseAgent):
     agent_name = "rich_dad_coach"
     system_prompt = prompts.SYSTEM_PROMPT
     use_tier1_rag = True
+
+    def __init__(self, user_id: int):
+        super().__init__(user_id)
+        # The coach drives the tool-calling loop; give it the flagship tier
+        # (QWEN_COACH_MODEL, default qwen3-max) instead of the specialist model.
+        self.llm = get_coach_llm()
 
     def _placeholder_context(self) -> Dict[str, str]:
         ctx = super()._placeholder_context()
@@ -139,6 +146,11 @@ class RichDadCoachAgent(BaseAgent):
                             args = {}
                     if not isinstance(args, dict):
                         args = {}
+
+                    yield emit(
+                        "tool_call",
+                        {"name": name, "kind": "write" if name in WRITE_TOOL_NAMES else "read"},
+                    )
 
                     if name in WRITE_TOOL_NAMES:
                         try:

@@ -469,6 +469,11 @@ class NextAction(models.Model):
         max_length=120, blank=True,
         help_text="Frontend route users should be sent to, e.g. /wealth/statement",
     )
+    priority = models.IntegerField(
+        default=50,
+        db_index=True,
+        help_text="Lower values surface first on the cockpit (10 = urgent).",
+    )
     is_done = models.BooleanField(default=False)
     is_dismissed = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)

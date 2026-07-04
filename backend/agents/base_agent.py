@@ -10,7 +10,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from agents.prompt_utils import render_prompt
 from apps.users.models import FinancialDNA, User
 from core.dna_context import dna_context_for_prompt
-from core.llm_factory import get_llm
+from core.llm_factory import _env_or_setting, get_llm
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,12 @@ class BaseAgent(ABC):
 
     def __init__(self, user_id: int):
         self.user_id = user_id
-        self.llm = get_llm()
+        # Specialists produce a concise report that the synthesis step consumes,
+        # so cap their output tightly — long generations dominate latency. The
+        # coach overrides self.llm with the flagship model in its own __init__.
+        self.llm = get_llm(
+            max_tokens=int(_env_or_setting("LLM_SPECIALIST_MAX_TOKENS", "450"))
+        )
         try:
             self.dna = FinancialDNA.objects.select_related("user").get(user_id=user_id)
         except FinancialDNA.DoesNotExist:
@@ -44,10 +49,22 @@ class BaseAgent(ABC):
         self.dna.agent_memory = full
         self.dna.save(update_fields=["agent_memory", "updated_at"])
 
+    def _rag_enabled(self) -> bool:
+        """Tier-1 book RAG. The coach always uses it; parallel-dispatched
+        specialists skip it by default so a single coordinator turn does not
+        fire 3 extra concurrent embedding calls (which the LLM throttles).
+        Re-enable for specialists with SPECIALIST_TIER1_RAG=true.
+        """
+        if not self.use_tier1_rag:
+            return False
+        if self.agent_name == "rich_dad_coach":
+            return True
+        return _env_or_setting("SPECIALIST_TIER1_RAG", "false").lower() in ("1", "true", "yes")
+
     def _placeholder_context(self) -> Dict[str, str]:
         """Override in subclasses to inject domain blocks (transactions, portfolio, etc.)."""
         ctx: Dict[str, str] = {"DNA_CONTEXT": dna_context_for_prompt(self.dna)}
-        if self.use_tier1_rag:
+        if self._rag_enabled():
             from agents.rag_prompts import TIER_SEPARATION_RULES
             from apps.knowledge.retrieval import retrieve_knowledge_context
 

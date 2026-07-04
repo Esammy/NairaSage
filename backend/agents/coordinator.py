@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import queue
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, Iterator, List, Optional, Tuple
@@ -65,6 +66,42 @@ RICH_DAD_SPECIALIST_MAP = {
 
 def _sse(event: str, payload: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+_GREETINGS = {
+    "hi", "hii", "hiii", "hello", "helo", "hey", "heyy", "yo", "sup", "hiya",
+    "good morning", "good afternoon", "good evening", "good day", "gm", "ga",
+    "how far", "howfar", "how you dey", "how you dey?", "abeg", "hey there",
+    "hello there", "hi there", "greetings", "morning", "evening", "afternoon",
+}
+_THANKS = {"thanks", "thank you", "thank u", "thx", "ty", "tnx", "thanks!", "thank you!", "much appreciated", "appreciate it", "nice one", "well done"}
+_HOWAREYOU = {"how are you", "how are you?", "how are you doing", "how's it going", "hows it going", "how do you do", "and you", "how are u"}
+
+
+def _smalltalk_reply(message: str, first_name: str = "") -> Optional[str]:
+    """Warm reply for greetings / thanks / 'how are you' so they aren't routed
+    to a finance specialist. Returns None for anything that needs real help."""
+    norm = message.strip().lower().strip("!.? ")
+    if not norm or len(norm) > 40:
+        return None
+    name = f" {first_name}" if first_name else ""
+    if norm in _THANKS:
+        return (
+            f"You're very welcome{name}! 😊 I'm always here whenever you need a hand "
+            "with your money. Anything else I can help you with?"
+        )
+    if norm in _HOWAREYOU:
+        return (
+            f"I'm doing great, thanks for asking{name}! 😊 More importantly — how are you, "
+            "and what can I help you sort out with your money today?"
+        )
+    if norm in _GREETINGS or (len(norm) <= 12 and any(norm.startswith(g) for g in ("hi", "hey", "hello", "yo", "good "))):
+        return (
+            f"Hey{name}! 👋 I'm NairaSage, your personal money co-pilot. I can help with "
+            "budgeting, saving, investing, debt, tax, or just figuring out your next smart "
+            "move with your Naira. What's on your mind today?"
+        )
+    return None
 
 
 def _stream_chunk_text(chunk: Any) -> str:
@@ -167,6 +204,57 @@ class CoordinatorAgent:
                 results[name] = payload
         return {n: results[n] for n in names if n in results}
 
+    def _iter_agents_parallel(
+        self, agent_names: List[str], message: str
+    ) -> Iterator[Tuple[str, Dict[str, Any]]]:
+        """Run specialists in parallel while yielding their lifecycle as it happens.
+
+        Yields ("agent_started", {...}) / ("agent_finished", {...}) tuples in real
+        time via a queue bridging the worker threads to this generator, then a
+        final ("results", {agent: payload}) carrying the collected reports. The
+        SSE consumer turns these into live orchestration events; they also act
+        as keepalives during the otherwise-silent parallel phase.
+        """
+        names = [n for n in agent_names if AGENT_REGISTRY.get(n)]
+        if not names:
+            names = ["accountant"]
+        q: "queue.Queue[Tuple[str, Dict[str, Any], Dict[str, Any]]]" = queue.Queue()
+
+        def worker(name: str) -> None:
+            frame = RICH_DAD_SPECIALIST_MAP.get(name, {}).get("frame", "")
+            q.put(("agent_started", {"agent": name, "frame": frame}, {}))
+            t0 = time.time()
+            _, payload = self._run_single_agent(name, message)
+            q.put(
+                (
+                    "agent_finished",
+                    {
+                        "agent": name,
+                        "ms": int((time.time() - t0) * 1000),
+                        "confidence": payload.get("confidence", 0.0),
+                        "summary_preview": str(payload.get("summary", ""))[:160],
+                    },
+                    payload,
+                )
+            )
+
+        results: Dict[str, Any] = {}
+        with ThreadPoolExecutor(max_workers=min(3, len(names))) as pool:
+            for n in names:
+                pool.submit(worker, n)
+            finished = 0
+            while finished < len(names):
+                try:
+                    kind, public, payload = q.get(timeout=300)
+                except queue.Empty:
+                    logger.error("Agent lifecycle queue timed out; continuing with partial results")
+                    break
+                if kind == "agent_finished":
+                    finished += 1
+                    results[public["agent"]] = payload
+                yield kind, public
+        yield "results", {n: results[n] for n in names if n in results}
+
     def _synthesis_messages(self, query: str, results: dict):
         context = "\n\n".join(
             f"[{name} report]: {r.get('summary', '')}" for name, r in results.items()
@@ -242,6 +330,28 @@ class CoordinatorAgent:
         self, message: str, session_id: Optional[int] = None
     ) -> Dict[str, Any]:
         start = time.time()
+
+        first_name = (getattr(self.dna.user, "first_name", "") or "").strip()
+        smalltalk = _smalltalk_reply(message, first_name)
+        if smalltalk:
+            session = self._session_for_user(session_id)
+            outcome = SkillOutcome.objects.create(
+                user_id=self.user_id,
+                session=session,
+                intent_bucket="greeting",
+                agents_called=[],
+                user_query=message[:500],
+                assistant_response=smalltalk,
+                response_time_ms=int((time.time() - start) * 1000),
+            )
+            self._touch_session_after_outcome(session, message)
+            return {
+                "response": smalltalk,
+                "agents_used": [],
+                "intent": "greeting",
+                "outcome_id": outcome.id,
+            }
+
         routing = self.route(message)
         agents = routing.get("agents", ["accountant"])[:3]
         bucket = routing.get("intent_bucket", "unknown")
@@ -317,6 +427,31 @@ class CoordinatorAgent:
         """Server-Sent Events: meta → delta (many) → done."""
         start = time.time()
         session = self._session_for_user(session_id)
+
+        # Greetings / thanks / small talk: reply warmly without routing to a
+        # finance specialist (faster, and far friendlier than a money lecture).
+        first_name = (getattr(self.dna.user, "first_name", "") or "").strip()
+        smalltalk = _smalltalk_reply(message, first_name)
+        if smalltalk:
+            yield _sse("meta", {"agents_used": [], "intent": "greeting"})
+            for word in smalltalk.split(" "):
+                yield _sse("delta", {"text": word + " "})
+            outcome = SkillOutcome.objects.create(
+                user_id=self.user_id,
+                session=session,
+                intent_bucket="greeting",
+                agents_called=[],
+                user_query=message[:500],
+                assistant_response=smalltalk,
+                response_time_ms=int((time.time() - start) * 1000),
+            )
+            self._touch_session_after_outcome(session, message)
+            yield _sse(
+                "done",
+                {"outcome_id": outcome.id, "response_length": len(smalltalk)},
+            )
+            return
+
         routing = self.route(message)
         agents = routing.get("agents", ["accountant"])[:3]
         bucket = routing.get("intent_bucket", "unknown")
@@ -330,19 +465,58 @@ class CoordinatorAgent:
             "meta",
             {"agents_used": agents, "intent": bucket},
         )
+        yield _sse(
+            "routing",
+            {
+                "agents": [
+                    {
+                        "agent": a,
+                        "frame": RICH_DAD_SPECIALIST_MAP.get(a, {}).get("frame", ""),
+                    }
+                    for a in agents
+                ],
+                "intent": bucket,
+            },
+        )
 
         pieces_acc: List[str] = []
+        results: Dict[str, Any] = {}
         if "rich_dad_coach" in agents:
             from agents.rich_dad_coach.agent import RichDadCoachAgent
 
+            coach_started = time.time()
+            yield _sse(
+                "agent_started",
+                {"agent": "rich_dad_coach", "frame": "NairaSage Coach"},
+            )
             coach = RichDadCoachAgent(self.user_id)
             for line in coach.iter_sse_turn(
                 message, session_id, pieces_acc, emit=_sse
             ):
                 yield line
             full_response = "".join(pieces_acc)
+            yield _sse(
+                "agent_finished",
+                {
+                    "agent": "rich_dad_coach",
+                    "ms": int((time.time() - coach_started) * 1000),
+                    "confidence": 0.85,
+                },
+            )
+            results = {
+                "rich_dad_coach": {
+                    "summary": full_response,
+                    "data": {},
+                    "confidence": 0.85,
+                }
+            }
         else:
-            results = self._run_agents_parallel(agents, message)
+            for kind, payload in self._iter_agents_parallel(agents, message):
+                if kind == "results":
+                    results = payload
+                else:
+                    yield _sse(kind, payload)
+            yield _sse("synthesis_started", {"agents": list(results.keys())})
 
             llm = get_synthesis_llm()
             messages = self._synthesis_messages(message, results)

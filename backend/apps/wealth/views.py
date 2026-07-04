@@ -59,6 +59,23 @@ from apps.wealth.services import (
 )
 
 
+def _snapshot_data_completeness(snap: FinancialStatementSnapshot) -> float:
+    """Share of statement buckets filled (0..1) for trust UI."""
+    fields = (
+        snap.income_active,
+        snap.income_passive,
+        snap.income_portfolio,
+        snap.expenses_essential,
+        snap.expenses_doodad,
+        snap.assets_cashflow,
+        snap.assets_appreciation,
+        snap.liabilities_good,
+        snap.liabilities_bad,
+    )
+    filled = sum(1 for f in fields if f and f != 0)
+    return round(filled / 9.0, 3)
+
+
 def build_cockpit_payload(user):
     """Same aggregate as WealthCockpitView (for post-action refresh)."""
     today = dt.date.today().replace(day=1)
@@ -86,7 +103,9 @@ def build_cockpit_payload(user):
     phase, _ = RichDadPhase.objects.get_or_create(user=user)
 
     active_action = (
-        NextAction.objects.filter(user=user, is_done=False, is_dismissed=False).first()
+        NextAction.objects.filter(user=user, is_done=False, is_dismissed=False)
+        .order_by("priority", "-created_at")
+        .first()
         or suggest_next_action(user)
     )
 
@@ -100,6 +119,9 @@ def build_cockpit_payload(user):
         ),
         "milestones_catalog": PHASE_MILESTONES,
         "cockpit_trend": cockpit_trend,
+        "snapshot_updated_at": snap.updated_at.isoformat() if snap.updated_at else None,
+        "period_month": snap.period_month.isoformat() if snap.period_month else None,
+        "data_completeness": _snapshot_data_completeness(snap),
     }
 
 
@@ -254,13 +276,17 @@ class NextActionViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return NextAction.objects.filter(user=self.request.user)
+        return NextAction.objects.filter(user=self.request.user).order_by(
+            "priority", "-created_at"
+        )
 
     @action(detail=False, methods=["get"], url_path="active")
     def active_action(self, request):
         active = (
-            NextAction.objects
-            .filter(user=request.user, is_done=False, is_dismissed=False)
+            NextAction.objects.filter(
+                user=request.user, is_done=False, is_dismissed=False
+            )
+            .order_by("priority", "-created_at")
             .first()
         )
         if active is None:
@@ -275,6 +301,17 @@ class NextActionViewSet(viewsets.ModelViewSet):
         obj.is_done = True
         obj.done_at = dt.datetime.now()
         obj.save(update_fields=["is_done", "done_at"])
+        return Response(NextActionSerializer(obj).data)
+
+    @action(detail=True, methods=["post"], url_path="complete")
+    def complete(self, request, pk=None):
+        return self.mark_done(request, pk=pk)
+
+    @action(detail=True, methods=["post"], url_path="dismiss")
+    def dismiss(self, request, pk=None):
+        obj = self.get_object()
+        obj.is_dismissed = True
+        obj.save(update_fields=["is_dismissed"])
         return Response(NextActionSerializer(obj).data)
 
 

@@ -20,6 +20,25 @@ export type ActionStripItem = {
   error?: string;
 };
 
+export type OrchestrationAgentStatus = "queued" | "running" | "done";
+
+export type OrchestrationAgent = {
+  agent: string;
+  frame?: string;
+  status: OrchestrationAgentStatus;
+  ms?: number;
+  confidence?: number;
+};
+
+export type OrchestrationPhase = "routing" | "agents" | "synthesis" | "done";
+
+export type OrchestrationState = {
+  phase: OrchestrationPhase;
+  intent?: string;
+  agents: OrchestrationAgent[];
+  toolCalls: { name: string; kind: "read" | "write" }[];
+};
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -27,6 +46,7 @@ export interface ChatMessage {
   topics?: string[];
   isStreaming?: boolean;
   actions?: ChatActionState[];
+  orchestration?: OrchestrationState;
 }
 
 function emptyThread(): ChatMessage[] {
@@ -186,7 +206,81 @@ export function useAgentStream(options?: UseAgentStreamOptions) {
                 continue;
               }
 
-              if (eventName === "meta") {
+              const patchOrchestration = (
+                fn: (o: OrchestrationState) => OrchestrationState
+              ) => {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMessageId
+                      ? {
+                          ...m,
+                          orchestration: fn(
+                            m.orchestration || {
+                              phase: "routing",
+                              agents: [],
+                              toolCalls: [],
+                            }
+                          ),
+                        }
+                      : m
+                  )
+                );
+              };
+
+              if (eventName === "routing") {
+                const routed = (data.agents as { agent: string; frame?: string }[]) || [];
+                patchOrchestration((o) => ({
+                  ...o,
+                  phase: "agents",
+                  intent: String(data.intent || ""),
+                  agents: routed.map((a) => ({ ...a, status: "queued" as const })),
+                }));
+              } else if (eventName === "agent_started") {
+                const agent = String(data.agent || "");
+                patchOrchestration((o) => ({
+                  ...o,
+                  agents: o.agents.some((a) => a.agent === agent)
+                    ? o.agents.map((a) =>
+                        a.agent === agent ? { ...a, status: "running" as const } : a
+                      )
+                    : [
+                        ...o.agents,
+                        {
+                          agent,
+                          frame: String(data.frame || ""),
+                          status: "running" as const,
+                        },
+                      ],
+                }));
+              } else if (eventName === "agent_finished") {
+                const agent = String(data.agent || "");
+                patchOrchestration((o) => ({
+                  ...o,
+                  agents: o.agents.map((a) =>
+                    a.agent === agent
+                      ? {
+                          ...a,
+                          status: "done" as const,
+                          ms: Number(data.ms) || undefined,
+                          confidence: Number(data.confidence) || undefined,
+                        }
+                      : a
+                  ),
+                }));
+              } else if (eventName === "synthesis_started") {
+                patchOrchestration((o) => ({ ...o, phase: "synthesis" }));
+              } else if (eventName === "tool_call") {
+                patchOrchestration((o) => ({
+                  ...o,
+                  toolCalls: [
+                    ...o.toolCalls,
+                    {
+                      name: String(data.name || ""),
+                      kind: data.kind === "write" ? "write" : "read",
+                    },
+                  ],
+                }));
+              } else if (eventName === "meta") {
                 optsRef.current?.onAssistantStreamStart?.(assistantMessageId);
                 agentsUsed = (data.agents_used as string[]) || [];
                 const topics = agentKeysToTopics(agentsUsed);
@@ -238,7 +332,15 @@ export function useAgentStream(options?: UseAgentStreamOptions) {
                 optsRef.current?.onAssistantStreamEnd?.(assistantMessageId);
                 setMessages((prev) =>
                   prev.map((m) =>
-                    m.id === assistantMessageId ? { ...m, isStreaming: false } : m
+                    m.id === assistantMessageId
+                      ? {
+                          ...m,
+                          isStreaming: false,
+                          orchestration: m.orchestration
+                            ? { ...m.orchestration, phase: "done" }
+                            : m.orchestration,
+                        }
+                      : m
                   )
                 );
               }
