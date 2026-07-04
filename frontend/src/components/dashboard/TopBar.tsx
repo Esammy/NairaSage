@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, Command, Bot, Menu, LogOut, Settings, User } from "lucide-react";
+import { Bell, Search, Bot, Menu, LogOut, Settings, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { openCommandPalette } from "@/lib/command-palette";
@@ -175,8 +175,8 @@ export function TopBar({
             onClick={openCommandPalette}
             className="relative flex flex-1 items-center gap-2 rounded-lg border border-border bg-secondary/30 px-3 text-sm text-muted-foreground hover:border-primary/30 hover:text-foreground transition-colors max-w-xl"
           >
-            <Command className="h-4 w-4 shrink-0" aria-hidden />
-            <span className="truncate">Quick jump</span>
+            <Search className="h-4 w-4 shrink-0" aria-hidden />
+            <span className="truncate">Search or jump to…</span>
             <kbd className="ml-auto hidden sm:inline-flex items-center gap-0.5 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
               Ctrl K
             </kbd>

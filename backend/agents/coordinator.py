@@ -594,21 +594,39 @@ class CoordinatorAgent:
             llm = get_synthesis_llm()
             messages = self._synthesis_messages(message, results)
             pieces: List[str] = []
-            try:
-                for chunk in llm.stream(messages):
-                    text = _stream_chunk_text(chunk)
-                    if text:
-                        pieces.append(text)
-                        yield _sse("delta", {"text": text})
-            except Exception as e:  # noqa: BLE001
-                logger.exception("Synthesis stream failed: %s", e)
+            synthesis_error = None
+            # Free-tier rate limits make the first synthesis call fail intermittently
+            # (the 3 parallel specialists fire just before it). Retry while nothing has
+            # streamed yet, so a transient error never surfaces "could not complete"
+            # ahead of the real answer.
+            for attempt in range(3):
+                try:
+                    for chunk in llm.stream(messages):
+                        text = _stream_chunk_text(chunk)
+                        if text:
+                            pieces.append(text)
+                            yield _sse("delta", {"text": text})
+                    synthesis_error = None
+                    break
+                except Exception as e:  # noqa: BLE001
+                    synthesis_error = e
+                    logger.warning(
+                        "Synthesis stream failed (attempt %s/3): %s", attempt + 1, e
+                    )
+                    if pieces:
+                        break  # partial content already sent; don't restart it
+                    time.sleep(0.8 * (attempt + 1))
+
+            if synthesis_error is not None and not pieces:
                 err = "I could not complete the response. Please try again."
                 pieces.append(err)
                 yield _sse("delta", {"text": err})
 
             full_response = "".join(pieces)
 
-            if self._should_reframe(agents):
+            # Only reframe a successful synthesis — never the error fallback, or a
+            # fresh answer would get concatenated after the "could not complete" text.
+            if synthesis_error is None and self._should_reframe(agents):
                 try:
                     reframed = self._reframe(full_response)
                     addition = (
