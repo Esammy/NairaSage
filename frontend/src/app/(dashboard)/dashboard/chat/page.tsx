@@ -48,11 +48,20 @@ export default function DashboardChatPage() {
     setSessionPage(1);
   }, []);
 
-  const { messages, sendMessage, isTyping, resetToWelcome, hydrateFromOutcomes, resolveChatAction } =
-    useAgentStream({
-      sessionId: activeSessionId,
-      onTurnComplete: refetchSessionHead,
-    });
+  const {
+    messages,
+    sendMessage,
+    isTyping,
+    resetToWelcome,
+    hydrateFromOutcomes,
+    resolveChatAction,
+    stopStreaming,
+    retryAssistantMessage,
+    regenerateAssistantMessage,
+  } = useAgentStream({
+    sessionId: activeSessionId,
+    onTurnComplete: refetchSessionHead,
+  });
 
   const postNewSession = useCallback(async (): Promise<ChatSessionRow> => {
     if (!createInFlight.current) {
@@ -378,8 +387,10 @@ export default function DashboardChatPage() {
               onSend={handleSend}
               onStop={stopStreaming}
               isTyping={isTyping}
-              disabled={booting || isTyping}
+              disabled={booting}
               resolveChatAction={resolveChatAction}
+              retryAssistantMessage={retryAssistantMessage}
+              regenerateAssistantMessage={regenerateAssistantMessage}
             />
           )}
           </div>

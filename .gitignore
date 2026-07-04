@@ -24,9 +24,14 @@ backend/staticfiles/
 frontend/.next/
 frontend/out/
 
+# Deploy artifacts
+nairasage-deploy.tar.gz
+*.tar.gz
+
 # IDE / OS
 .idea/
 .vscode/
+.claude/
 *.swp
 .DS_Store
 backend/books
@@ -35,3 +40,4 @@ backend/books
 Business plan.txt
 *.business-plan.*
 docs/
+Technical doc.txt

@@ -64,7 +64,18 @@ function WealthChatInner() {
     usePersistentCoachSession(hydrateRef);
   const [historyOpen, setHistoryOpen] = useState(false);
 
-  const { messages, setMessages, sendMessage, isTyping, resolveChatAction, actionStrip, hydrateFromOutcomes } = useAgentStream({
+  const {
+    messages,
+    setMessages,
+    sendMessage,
+    isTyping,
+    resolveChatAction,
+    actionStrip,
+    hydrateFromOutcomes,
+    stopStreaming,
+    retryAssistantMessage,
+    regenerateAssistantMessage,
+  } = useAgentStream({
     sessionId,
     onTurnComplete: () => {
       void refreshSessions();
@@ -105,12 +116,14 @@ function WealthChatInner() {
     if (p) setInput(p);
   }, [searchParams]);
 
-  const handleSend = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isTyping) return;
-    void sendMessage(input);
-    setInput("");
-  };
+  const handleSend = useCallback(
+    (text: string) => {
+      if (!text.trim() || isTyping) return;
+      void sendMessage(text);
+      setInput("");
+    },
+    [sendMessage, isTyping]
+  );
 
   const prime = (prompt: string) => {
     setInput(prompt);
@@ -277,9 +290,12 @@ function WealthChatInner() {
           messages={messages}
           input={input}
           setInput={setInput}
-          onSubmit={handleSend}
+          onSend={handleSend}
+          onStop={stopStreaming}
           isTyping={isTyping}
           resolveChatAction={resolveChatAction}
+          retryAssistantMessage={retryAssistantMessage}
+          regenerateAssistantMessage={regenerateAssistantMessage}
           attach={{
             busy: scanning,
             onPick: (file) => {

@@ -6,6 +6,11 @@ import {
   accessTokenCookieOptions,
 } from "@/lib/request-cookies";
 
+// The coordinator stream (routing -> parallel specialists -> synthesis) can run
+// well past Vercel's short default. Allow up to 60s (Hobby max; Pro can go 300)
+// so the orchestration stream is never cut mid-flight.
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   try {
     const cookieHeader = request.headers.get("cookie");

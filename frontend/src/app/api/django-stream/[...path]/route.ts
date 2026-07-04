@@ -6,6 +6,10 @@ import {
   accessTokenCookieOptions,
 } from "@/lib/request-cookies";
 
+// Deal deep-analysis streams the thinking model's reasoning, which can be long.
+// Allow up to 60s (Hobby max; Pro can go 300) so it isn't cut mid-stream.
+export const maxDuration = 60;
+
 /** Django SSE endpoints allowed through this streaming proxy (the generic
  * /api/django proxy buffers the whole body, which breaks streaming). */
 const STREAMABLE = [/^wealth\/deals\/\d+\/deep-analysis$/];

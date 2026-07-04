@@ -1,12 +1,12 @@
 "use client";
 
-import React, { useRef, useEffect, useState } from "react";
-import { Send, Bot, Sparkles, Mic, MicOff, Volume2, VolumeX, Lightbulb, Paperclip, Loader2 } from "lucide-react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Send, Bot, Mic, MicOff, Volume2, VolumeX, Lightbulb, Paperclip, Loader2, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ChatMessage, ChatActionStatus } from "@/hooks/useAgentStream";
 import { ChatActionCard } from "@/components/agent/ChatActionCard";
 import { AgentOrchestrationPanel } from "@/components/agent/AgentOrchestrationPanel";
-import { Markdown } from "@/components/ui/Markdown";
+import { MessageBubble } from "@/components/agent/MessageBubble";
 import { COACH_SUGGESTION_PROMPTS } from "@/lib/coach-prompts";
 
 type Variant = "drawer" | "full";
@@ -43,13 +43,17 @@ export function NairaSageChatPanel({
   voice,
   attach,
   onSuggest,
+  input: controlledInput,
+  setInput: controlledSetInput,
+  retryAssistantMessage,
+  regenerateAssistantMessage,
 }: {
   variant: Variant;
   title?: string;
   subtitle?: string;
   messages: ChatMessage[];
   onSend: (text: string) => void;
-  onStop: () => void;
+  onStop?: () => void;
   isTyping: boolean;
   disabled?: boolean;
   headerActions?: React.ReactNode;
@@ -59,10 +63,21 @@ export function NairaSageChatPanel({
   attach?: NairaSageAttachSlot;
   /** If set, suggestion chips send immediately; otherwise they fill the input. */
   onSuggest?: (prompt: string) => void;
+  /** Optional controlled draft (e.g. URL prefill / external prime). */
+  input?: string;
+  setInput?: React.Dispatch<React.SetStateAction<string>>;
+  retryAssistantMessage?: (id: string) => void | Promise<void>;
+  regenerateAssistantMessage?: (id: string) => void | Promise<void>;
 }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [internalInput, setInternalInput] = useState("");
   // null = no explicit user choice: grid shows until the first message lands.
   const [suggestionsPref, setSuggestionsPref] = useState<boolean | null>(null);
+
+  const isControlled = controlledInput !== undefined && controlledSetInput !== undefined;
+  const input = isControlled ? controlledInput : internalInput;
+  const setInput = isControlled ? controlledSetInput : setInternalInput;
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -76,24 +91,32 @@ export function NairaSageChatPanel({
   const showSuggestionGrid = suggestionsPref ?? messages.length === 0;
   const voiceListening = !!(voice?.supported && voice.listening);
 
-  const shellClass =
-    variant === "full"
-      ? "flex flex-col h-[min(720px,calc(100dvh-220px))] min-h-[420px] w-full glass-panel rounded-2xl border border-border overflow-hidden shadow-xl lg:rounded-none lg:border-0 lg:shadow-none"
-      : "flex flex-col h-full min-h-0 overflow-hidden";
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const text = fieldValue.trim();
+    if (!text || disabled || isTyping || voiceListening) return;
+    onSend(text);
+    setInput("");
+  };
 
   const onRetry = useCallback(
     (id: string) => {
-      void retryAssistantMessage(id);
+      void retryAssistantMessage?.(id);
     },
     [retryAssistantMessage]
   );
 
   const onRegen = useCallback(
     (id: string) => {
-      void regenerateAssistantMessage(id);
+      void regenerateAssistantMessage?.(id);
     },
     [regenerateAssistantMessage]
   );
+
+  const shellClass =
+    variant === "full"
+      ? "flex flex-col h-[min(720px,calc(100dvh-220px))] min-h-[420px] w-full glass-panel rounded-2xl border border-border overflow-hidden shadow-xl lg:rounded-none lg:border-0 lg:shadow-none"
+      : "flex flex-col h-full min-h-0 overflow-hidden";
 
   return (
     <div className={shellClass}>
@@ -148,40 +171,11 @@ export function NairaSageChatPanel({
                 </div>
               </div>
             ) : null}
-            <div className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-              <div
-                className={`max-w-[90%] sm:max-w-[85%] rounded-2xl p-4 ${
-                  msg.role === "user"
-                    ? "bg-primary text-primary-foreground rounded-tr-sm shadow-md"
-                    : "glass-card border-border/30 rounded-tl-sm"
-                }`}
-              >
-                {msg.role === "assistant" ? (
-                  <div className="text-sm leading-relaxed">
-                    <Markdown>{msg.content}</Markdown>
-                    {msg.isStreaming && (
-                      <span className="inline-block w-1.5 h-3.5 bg-primary ml-0.5 animate-pulse align-text-bottom" />
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                )}
-
-                {msg.topics && msg.topics.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-1 border-t border-border/30 pt-2">
-                    {msg.topics.map((topic) => (
-                      <span
-                        key={topic}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-background/50 text-foreground border border-border"
-                      >
-                        <Sparkles className="w-3 h-3 text-primary shrink-0" />
-                        {topic}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+            <MessageBubble
+              msg={msg}
+              onRetry={retryAssistantMessage ? onRetry : undefined}
+              onRegenerate={regenerateAssistantMessage ? onRegen : undefined}
+            />
             {msg.role === "assistant" &&
               msg.actions &&
               msg.actions.length > 0 &&
@@ -245,7 +239,7 @@ export function NairaSageChatPanel({
             ) : null}
           </div>
         ) : null}
-        <form onSubmit={onSubmit} className="flex gap-2 items-center">
+        <form onSubmit={handleSubmit} className="flex gap-2 items-center">
           {attach ? (
             <label
               className={`shrink-0 inline-flex items-center justify-center h-10 w-10 rounded-full border border-border cursor-pointer hover:bg-secondary/50 transition-colors ${
@@ -319,19 +313,32 @@ export function NairaSageChatPanel({
                 voiceListening ? "italic text-muted-foreground" : ""
               }`}
             />
-            <Button
-              type="submit"
-              size="icon"
-              disabled={
-                disabled ||
-                isTyping ||
-                !fieldValue.trim() ||
-                (voice?.listening ?? false)
-              }
-              className="absolute right-1 top-1 bottom-1 h-auto rounded-full bg-primary hover:bg-gold-600 shadow-md shadow-gold-500/20 disabled:bg-primary/50 disabled:shadow-none"
-            >
-              <Send className="w-4 h-4 text-primary-foreground" />
-            </Button>
+            {isTyping && onStop ? (
+              <Button
+                type="button"
+                size="icon"
+                onClick={onStop}
+                className="absolute right-1 top-1 bottom-1 h-auto rounded-full bg-destructive hover:bg-destructive/90 shadow-md"
+                aria-label="Stop generating"
+                title="Stop generating"
+              >
+                <Square className="w-3.5 h-3.5 text-destructive-foreground fill-current" />
+              </Button>
+            ) : (
+              <Button
+                type="submit"
+                size="icon"
+                disabled={
+                  disabled ||
+                  isTyping ||
+                  !fieldValue.trim() ||
+                  voiceListening
+                }
+                className="absolute right-1 top-1 bottom-1 h-auto rounded-full bg-primary hover:bg-gold-600 shadow-md shadow-gold-500/20 disabled:bg-primary/50 disabled:shadow-none"
+              >
+                <Send className="w-4 h-4 text-primary-foreground" />
+              </Button>
+            )}
           </div>
         </form>
       </div>

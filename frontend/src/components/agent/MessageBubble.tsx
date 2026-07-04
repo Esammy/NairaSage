@@ -4,7 +4,7 @@ import React, { useCallback } from "react";
 import { Bot, Copy, RefreshCw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ChatMessage } from "@/hooks/useAgentStream";
-import { AssistantMarkdown } from "@/components/agent/AssistantMarkdown";
+import { Markdown } from "@/components/ui/Markdown";
 
 export const MessageBubble = React.memo(function MessageBubble({
   msg,
@@ -57,9 +57,7 @@ export const MessageBubble = React.memo(function MessageBubble({
           <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
         ) : (
           <>
-            {msg.content ? (
-              <AssistantMarkdown content={msg.content} />
-            ) : null}
+            {msg.content ? <Markdown>{msg.content}</Markdown> : null}
             {msg.isStreaming && msg.content ? (
               <span
                 className="inline-block w-1.5 h-3.5 bg-primary ml-1 animate-pulse"
