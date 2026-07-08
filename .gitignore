@@ -39,5 +39,5 @@ backend/books
 # Private strategy docs — keep out of the public hackathon repo
 Business plan.txt
 *.business-plan.*
-docs/
+# docs/DEMO_SCRIPT.md
 Technical doc.txt

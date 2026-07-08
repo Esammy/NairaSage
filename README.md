@@ -15,18 +15,21 @@ scanning, and visible-reasoning deal analysis.
 
 | Capability | Qwen model | Where |
 |---|---|---|
-| Routing + 12 specialist agents | `qwen3.5-flash` | [`core/llm_factory.py`](backend/core/llm_factory.py) |
+| Routing + 12 specialist agents | `qwen-flash` | [`core/llm_factory.py`](backend/core/llm_factory.py) |
 | Rich Dad Coach + answer synthesis | `qwen3-max` | [`core/llm_factory.py`](backend/core/llm_factory.py) |
-| Deal deep-analysis (visible reasoning) | `qwen3-max-thinking` | [`apps/wealth/deal_analysis.py`](backend/apps/wealth/deal_analysis.py) |
+| Deal deep-analysis (visible reasoning) | `qwen3-235b-a22b-thinking-2507` | [`apps/wealth/deal_analysis.py`](backend/apps/wealth/deal_analysis.py) |
 | Bank-statement / receipt scan | `qwen3-vl-plus` | [`apps/wealth/document_scan.py`](backend/apps/wealth/document_scan.py) |
-| Voice transcription | `qwen3-asr-flash` | [`apps/wealth/voice_transcribe.py`](backend/apps/wealth/voice_transcribe.py) |
+| Voice transcription | `qwen3-asr-flash-2026-02-10` | [`apps/wealth/voice_transcribe.py`](backend/apps/wealth/voice_transcribe.py) |
 | RAG embeddings (pgvector) | `text-embedding-v4` | [`core/embeddings_factory.py`](backend/core/embeddings_factory.py) |
 
 All Qwen calls go through the OpenAI-compatible DashScope endpoint.
 **Alibaba Cloud integration proof:** [`backend/integrations/alibaba_cloud.py`](backend/integrations/alibaba_cloud.py)
 (live DashScope + OSS health checks). What was built during the hackathon:
-[`docs/HACKATHON.md`](docs/HACKATHON.md). Efficiency vs single-agent:
-[`docs/BENCHMARK.md`](docs/BENCHMARK.md).
+[`docs/HACKATHON.md`](docs/HACKATHON.md). Measurable efficiency vs a
+single-agent baseline: run the benchmark harness
+[`backend/scripts/benchmark_agents.py`](backend/scripts/benchmark_agents.py)
+(a `qwen3-max` judge blind-scores multi-agent vs monolithic answers), which
+writes the results to `docs/BENCHMARK.md`.
 
 ## Architecture
 
@@ -50,9 +53,9 @@ flowchart TB
     end
     Web --> Coord
 
-    Qwen --- M1["qwen3.5-flash · routing + specialists"]
+    Qwen --- M1["qwen-flash · routing + specialists"]
     Qwen --- M2["qwen3-max · coach + synthesis"]
-    Qwen --- M3["qwen3-max-thinking · deal analysis"]
+    Qwen --- M3["qwen3-235b-a22b-thinking · deal analysis"]
     Qwen --- M4["qwen3-vl-plus · document scan"]
     Qwen --- M5["qwen3-asr-flash · voice"]
     Qwen --- M6["text-embedding-v4 · RAG"]

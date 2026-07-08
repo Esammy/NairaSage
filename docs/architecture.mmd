@@ -1,0 +1,51 @@
+%%{init: {'theme':'base','themeVariables':{'fontFamily':'Segoe UI, Arial, sans-serif','fontSize':'15px','lineColor':'#64748b','primaryColor':'#ffffff','primaryTextColor':'#0f172a','primaryBorderColor':'#cbd5e1'}}}%%
+flowchart TB
+    User["<b>User</b><br/>web browser · voice · statement photo"]
+
+    subgraph Frontend["Frontend"]
+        Vercel["<b>Next.js 16</b><br/>on Vercel<br/><i>live agent-orchestration UI</i>"]
+    end
+
+    subgraph ECS["Alibaba Cloud ECS — Docker Compose"]
+        Caddy["<b>Caddy</b><br/>auto-TLS reverse proxy"]
+        Web["<b>Django 5 + DRF</b><br/>gunicorn · SSE streaming"]
+        Coord["<b>Agent Society — Coordinator</b><br/>route → run specialists in parallel → synthesize"]
+        Spec["13 specialist agents<br/>accountant · economist · investment<br/>tax · behavioral coach · debt · risk …"]
+        Coach["Rich Dad Coach<br/>tools · confirm-before-write"]
+        PG[("<b>Postgres 16</b><br/>+ pgvector RAG")]
+        Redis[("<b>Redis 7</b>")]
+        Worker["RQ worker<br/>async jobs"]
+    end
+
+    OSS[("<b>Alibaba OSS</b><br/>document / statement storage")]
+
+    subgraph Qwen["Qwen Cloud — OpenAI-compatible DashScope"]
+        M1["<b>qwen-flash</b><br/>routing + 12 specialists"]
+        M2["<b>qwen3-max</b><br/>coach + synthesis"]
+        M3["<b>qwen3-235b-a22b-thinking-2507</b><br/>deal deep-analysis (visible reasoning)"]
+        M4["<b>qwen3-vl-plus</b><br/>bank-statement / receipt scan"]
+        M5["<b>qwen3-asr-flash-2026-02-10</b><br/>voice transcription"]
+        M6["<b>text-embedding-v4</b><br/>RAG embeddings (1024-dim)"]
+    end
+
+    User -->|HTTPS| Vercel
+    Vercel -->|"SSE / REST"| Caddy
+    Caddy --> Web
+    Web --> Coord
+    Coord --> Spec
+    Coord --> Coach
+    Web --> PG
+    Web --> Redis
+    Redis --> Worker
+    Web -->|"scanned documents"| OSS
+    Coord -->|"every model call"| Qwen
+    Web --> Qwen
+
+    classDef qwen fill:#eef2ff,stroke:#6366f1,stroke-width:1px,color:#1e1b4b;
+    classDef ali fill:#fff7ed,stroke:#f97316,stroke-width:1px,color:#7c2d12;
+    classDef store fill:#f0fdfa,stroke:#14b8a6,color:#134e4a;
+    classDef agents fill:#f5f3ff,stroke:#8b5cf6,color:#2e1065;
+    class M1,M2,M3,M4,M5,M6 qwen;
+    class OSS ali;
+    class PG,Redis store;
+    class Coord,Spec,Coach agents;
