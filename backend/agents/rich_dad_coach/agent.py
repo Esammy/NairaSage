@@ -27,7 +27,7 @@ from apps.wealth.actions import (
     create_proposal,
     execute_read_tool,
 )
-from core.llm_factory import get_coach_llm
+from core.llm_factory import get_coach_fallback_models, get_coach_llm
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +111,13 @@ class RichDadCoachAgent(BaseAgent):
 
         tools = build_wealth_coach_tools()
         llm_tools = self.llm.bind_tools(tools)
+        # Backup models (default qwen-flash) so a qwen3-max quota/rate-limit rejection
+        # falls through instead of breaking the coach turn. Wrapped after bind_tools.
+        _coach_backups = get_coach_fallback_models()
+        if _coach_backups:
+            llm_tools = llm_tools.with_fallbacks(
+                [b.bind_tools(tools) for b in _coach_backups]
+            )
 
         full_reply_parts: List[str] = []
         rounds = 0

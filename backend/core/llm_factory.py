@@ -11,6 +11,7 @@ from typing import Optional
 
 from django.conf import settings
 from langchain_core.language_models import BaseChatModel
+from langchain_core.runnables import Runnable
 
 try:
     from langchain_mistralai import ChatMistralAI
@@ -70,6 +71,58 @@ def _qwen_chat_model(model: str, temperature: float, max_tokens: int) -> BaseCha
         base_url=_env_or_setting("DASHSCOPE_BASE_URL", DASHSCOPE_DEFAULT_BASE_URL),
         extra_body={"max_tokens": max_tokens},
     )
+
+
+def _qwen_fallback_models(
+    env_var: str, default: str, temperature: float, max_tokens: int
+) -> list:
+    """Build backup Qwen chat models from a comma-separated list of model IDs.
+
+    Returns [] when nothing is configured. Used to make a primary model resilient
+    to per-model quota / rate-limit / 5xx errors: if the flagship (e.g. qwen3-max)
+    is rejected, calls transparently retry on a backup (default qwen-flash, which
+    shares the same DASHSCOPE_API_KEY). Unknown/duplicate IDs are skipped.
+    """
+    models: list = []
+    for name in [m.strip() for m in _env_or_setting(env_var, default).split(",") if m.strip()]:
+        try:
+            models.append(_qwen_chat_model(name, temperature, max_tokens))
+        except Exception:  # noqa: BLE001 - a bad backup ID must not break the primary
+            continue
+    return models
+
+
+def _with_qwen_fallbacks(
+    primary: BaseChatModel,
+    provider: str,
+    env_var: str,
+    default: str,
+    temperature: float,
+    max_tokens: int,
+) -> Runnable:
+    """Wrap `primary` with LangChain automatic fallbacks when running on Qwen.
+
+    No-op for other providers or when no valid backups are configured, so default
+    behaviour is unchanged unless a fallback env var is set.
+    """
+    if provider != "qwen":
+        return primary
+    fallbacks = _qwen_fallback_models(env_var, default, temperature, max_tokens)
+    return primary.with_fallbacks(fallbacks) if fallbacks else primary
+
+
+def get_coach_fallback_models() -> list:
+    """Backup models for the coach's tool-calling loop.
+
+    Wrap these via `.with_fallbacks()` AFTER `bind_tools()` (a RunnableWithFallbacks
+    has no bind_tools). Empty for non-Qwen providers.
+    """
+    provider = _env_or_setting("LLM_PROVIDER", "mistral").lower()
+    if provider != "qwen":
+        return []
+    temp = float(_env_or_setting("LLM_TEMPERATURE", "0.2"))
+    tokens = int(_env_or_setting("LLM_MAX_TOKENS", "4096"))
+    return _qwen_fallback_models("QWEN_COACH_FALLBACKS", "qwen-flash", temp, tokens)
 
 
 def _build_chat_model(
@@ -159,7 +212,7 @@ def _cached_llm(
 def get_llm(
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
-) -> BaseChatModel:
+) -> Runnable:
     provider = _env_or_setting("LLM_PROVIDER", "mistral").lower()
     temp = (
         temperature
@@ -167,7 +220,7 @@ def get_llm(
         else float(_env_or_setting("LLM_TEMPERATURE", "0.2"))
     )
     tokens = max_tokens or int(_env_or_setting("LLM_MAX_TOKENS", "4096"))
-    return _build_chat_model(
+    primary = _build_chat_model(
         provider=provider,
         temperature=temp,
         max_tokens=tokens,
@@ -177,6 +230,8 @@ def get_llm(
         gemini_model=_env_or_setting("GEMINI_MODEL", "gemini-2.5-flash"),
         qwen_model=_env_or_setting("QWEN_MODEL", "qwen-flash"),
     )
+    # Opt-in backups (QWEN_FALLBACKS); default empty since specialists run on qwen-flash.
+    return _with_qwen_fallbacks(primary, provider, "QWEN_FALLBACKS", "", temp, tokens)
 
 
 def get_routing_llm() -> BaseChatModel:
@@ -204,7 +259,7 @@ def get_routing_llm() -> BaseChatModel:
     qwen = _env_or_setting("QWEN_ROUTING_MODEL", "") or _env_or_setting(
         "QWEN_MODEL", "qwen-flash"
     )
-    return _build_chat_model(
+    primary = _build_chat_model(
         provider=provider,
         temperature=0.0,
         max_tokens=max_tok,
@@ -214,10 +269,18 @@ def get_routing_llm() -> BaseChatModel:
         gemini_model=gemini,
         qwen_model=qwen,
     )
+    # Opt-in backups (QWEN_ROUTING_FALLBACKS); default empty since routing runs on qwen-flash.
+    return _with_qwen_fallbacks(primary, provider, "QWEN_ROUTING_FALLBACKS", "", 0.0, max_tok)
 
 
-def get_synthesis_llm() -> BaseChatModel:
-    """Coordinator final answer; separate cap from specialist agents."""
+def get_synthesis_llm() -> Runnable:
+    """Coordinator final answer; separate cap from specialist agents.
+
+    On Qwen the flagship qwen3-max is wrapped with automatic fallbacks
+    (QWEN_SYNTHESIS_FALLBACKS, default qwen-flash) so a per-model quota/rate-limit
+    rejection transparently retries on a backup instead of surfacing
+    "I could not complete the response."
+    """
     provider = (
         _env_or_setting("LLM_PROVIDER_SYNTHESIS", "").strip().lower()
         or _env_or_setting("LLM_PROVIDER", "mistral").lower()
@@ -229,7 +292,7 @@ def get_synthesis_llm() -> BaseChatModel:
             _env_or_setting("LLM_TEMPERATURE", "0.2"),
         )
     )
-    return _build_chat_model(
+    primary = _build_chat_model(
         provider=provider,
         temperature=temp,
         max_tokens=max_tok,
@@ -239,6 +302,9 @@ def get_synthesis_llm() -> BaseChatModel:
         gemini_model=_env_or_setting("GEMINI_MODEL", "gemini-2.5-flash"),
         qwen_model=_env_or_setting("QWEN_SYNTHESIS_MODEL", "")
         or _env_or_setting("QWEN_MODEL", "qwen3-max"),
+    )
+    return _with_qwen_fallbacks(
+        primary, provider, "QWEN_SYNTHESIS_FALLBACKS", "qwen-flash", temp, max_tok
     )
 
 
