@@ -11,7 +11,7 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 from django.core.cache import cache
 from django.db import close_old_connections
 from django.utils import timezone
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessageChunk, HumanMessage, SystemMessage
 
 from apps.users.models import (
     CoordinatorChatSession,
