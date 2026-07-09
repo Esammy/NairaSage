@@ -8,8 +8,9 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
   --font-mono: var(--font-geist-mono);
-  
+
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -18,13 +19,13 @@
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar: var(--sidebar);
-  
+
   --color-chart-5: var(--chart-5);
   --color-chart-4: var(--chart-4);
   --color-chart-3: var(--chart-3);
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
-  
+
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -42,16 +43,19 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  
-  /* Custom NairaSage Colors */
-  --color-gold-400: #e0c25a;
-  --color-gold-500: #d4af37;
-  --color-gold-600: #aa8c2c;
-  --color-emerald-500: #10b981;
-  
-  /* Glassmorphism Token */
-  --color-glass: rgba(255, 255, 255, 0.03);
-  --color-glass-border: rgba(255, 255, 255, 0.08);
+
+  /* Muted brass scale (Private Bank OS) */
+  --color-gold-400: #c4b07a;
+  --color-gold-500: #b8a06a;
+  --color-gold-600: #8f7a4a;
+  --color-emerald-500: #2d9f6f;
+
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-surface-elevated: var(--surface-elevated);
+
+  --color-glass: rgba(255, 255, 255, 0.02);
+  --color-glass-border: rgba(255, 255, 255, 0.06);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -60,51 +64,57 @@
   --radius-2xl: calc(var(--radius) + 8px);
 }
 
-:root, .dark {
-  --background: #0a0a0a;
-  --foreground: #f8fafc;
-  
-  --card: #121212;
-  --card-foreground: #f8fafc;
-  
-  --popover: #121212;
-  --popover-foreground: #f8fafc;
-  
-  --primary: #d4af37; /* Gold 500 */
-  --primary-foreground: #0a0a0a;
-  
-  --secondary: #1a1a1a;
-  --secondary-foreground: #f8fafc;
-  
-  --muted: #1f1f1f;
-  --muted-foreground: #94a3b8;
-  
-  --accent: #1f1f1f;
-  --accent-foreground: #d4af37;
-  
-  --destructive: #7f1d1d;
-  --destructive-foreground: #f8fafc;
-  
-  --border: #27272a;
-  --input: #27272a;
-  --ring: #d4af37;
-  
-  --chart-1: #d4af37; /* Gold */
-  --chart-2: #10b981; /* Emerald */
-  --chart-3: #f59e0b;
-  --chart-4: #8b5cf6;
-  --chart-5: #3b82f6;
-  
-  --radius: 0.75rem;
+:root,
+.dark {
+  --background: #0c0c0b;
+  --foreground: #f2f0eb;
 
-  --sidebar: #0a0a0a;
-  --sidebar-foreground: #f8fafc;
-  --sidebar-primary: #d4af37;
-  --sidebar-primary-foreground: #0a0a0a;
-  --sidebar-accent: #1a1a1a;
-  --sidebar-accent-foreground: #d4af37;
-  --sidebar-border: #27272a;
-  --sidebar-ring: #d4af37;
+  --card: #141412;
+  --card-foreground: #f2f0eb;
+
+  --popover: #141412;
+  --popover-foreground: #f2f0eb;
+
+  /* Muted brass — calm authority, not neon gold */
+  --primary: #b8a06a;
+  --primary-foreground: #0c0c0b;
+
+  --secondary: #1a1916;
+  --secondary-foreground: #f2f0eb;
+
+  --muted: #1e1d1a;
+  --muted-foreground: #a8a399;
+
+  --accent: #1e1d1a;
+  --accent-foreground: #b8a06a;
+
+  --destructive: #8b3a3a;
+  --destructive-foreground: #f2f0eb;
+
+  --success: #2d9f6f;
+  --warning: #c4a35a;
+  --surface-elevated: #181714;
+
+  --border: #2a2824;
+  --input: #2a2824;
+  --ring: #b8a06a;
+
+  --chart-1: #b8a06a;
+  --chart-2: #2d9f6f;
+  --chart-3: #c4a35a;
+  --chart-4: #6b8f9e;
+  --chart-5: #8a7a5c;
+
+  --radius: 0.625rem;
+
+  --sidebar: #0c0c0b;
+  --sidebar-foreground: #f2f0eb;
+  --sidebar-primary: #b8a06a;
+  --sidebar-primary-foreground: #0c0c0b;
+  --sidebar-accent: #1a1916;
+  --sidebar-accent-foreground: #b8a06a;
+  --sidebar-border: #2a2824;
+  --sidebar-ring: #b8a06a;
 }
 
 @layer base {
@@ -112,23 +122,50 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground antialiased selection:bg-gold-500/30;
-    /* Premium subtle top glow */
-    background-image: radial-gradient(circle at center top, rgba(212, 175, 55, 0.08), transparent 45%);
+    @apply bg-background text-foreground antialiased selection:bg-primary/25;
     background-color: var(--background);
+    /* Soft ink wash — no loud gold glow */
+    background-image: radial-gradient(
+      ellipse 80% 50% at 50% -10%,
+      rgba(184, 160, 106, 0.06),
+      transparent 55%
+    );
     background-repeat: no-repeat;
     min-height: 100vh;
+  }
+  h1,
+  h2,
+  h3,
+  .font-display {
+    font-family: var(--font-display), var(--font-sans), serif;
   }
 }
 
 @layer utilities {
   .glass-panel {
-    @apply bg-glass border border-glass-border backdrop-blur-xl shadow-2xl;
+    @apply bg-surface-elevated border border-border/80 shadow-sm;
   }
   .glass-card {
-    @apply bg-card/40 border border-glass-border backdrop-blur-lg shadow-lg hover:shadow-gold-500/10 transition-shadow duration-300;
+    @apply bg-card border border-border/60 shadow-sm transition-colors duration-200 hover:border-border;
+  }
+  .surface-elevated {
+    @apply bg-surface-elevated border border-border/80;
   }
   .text-glow {
-    text-shadow: 0 0 20px rgba(212, 175, 55, 0.3);
+    /* Kept for compatibility; intentionally muted */
+    text-shadow: none;
+  }
+  .tabular-money {
+    @apply tabular-nums tracking-tight;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

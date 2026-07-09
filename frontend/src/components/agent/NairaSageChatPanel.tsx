@@ -115,18 +115,18 @@ export function NairaSageChatPanel({
 
   const shellClass =
     variant === "full"
-      ? "flex flex-col h-[min(720px,calc(100dvh-220px))] min-h-[420px] w-full glass-panel rounded-2xl border border-border overflow-hidden shadow-xl lg:rounded-none lg:border-0 lg:shadow-none"
+      ? "flex flex-col h-[min(720px,calc(100dvh-220px))] min-h-[420px] w-full rounded-xl border border-border bg-card overflow-hidden lg:rounded-none lg:border-0"
       : "flex flex-col h-full min-h-0 overflow-hidden";
 
   return (
     <div className={shellClass}>
-      <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-b border-border/50 bg-card/50 shrink-0">
+      <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-border shrink-0 bg-surface-elevated">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="bg-primary/20 p-2 rounded-xl shrink-0">
-            <Bot className="w-5 h-5 text-primary" />
+          <div className="h-9 w-9 rounded-md border border-primary/30 bg-primary/10 flex items-center justify-center shrink-0">
+            <Bot className="w-4 h-4 text-primary" aria-hidden />
           </div>
           <div className="min-w-0">
-            <h3 className="font-semibold text-foreground truncate">{title}</h3>
+            <h3 className="font-display font-medium text-foreground truncate">{title}</h3>
             <p className="text-xs text-muted-foreground truncate">{subtitle}</p>
           </div>
         </div>
@@ -140,9 +140,12 @@ export function NairaSageChatPanel({
         aria-relevant="additions text"
       >
         {messages.length === 0 && (
-          <p className="text-sm text-muted-foreground text-center px-4 max-w-md mx-auto mb-4">
-            Pick a starter below or type your own question.
-          </p>
+          <div className="text-center px-4 max-w-md mx-auto mb-2 pt-4">
+            <p className="font-display text-lg font-medium text-foreground">How can I help?</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Pick a starter or ask about cashflow, tax, debt, or deals.
+            </p>
+          </div>
         )}
         {showSuggestionGrid ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-lg mx-auto pb-2">
@@ -152,7 +155,7 @@ export function NairaSageChatPanel({
                 type="button"
                 disabled={disabled || isTyping}
                 onClick={() => pickSuggestion(s.prompt)}
-                className="text-left rounded-lg border border-border bg-secondary/30 px-3 py-2.5 text-xs text-foreground hover:border-primary/40 hover:bg-primary/5 transition-colors disabled:opacity-50"
+                className="text-left rounded-md border border-border bg-background/60 px-3 py-2.5 text-xs text-foreground hover:border-primary/35 hover:bg-primary/5 transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {s.label}
               </button>
@@ -190,14 +193,14 @@ export function NairaSageChatPanel({
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="p-4 bg-background/80 backdrop-blur-md border-t border-border/50 shrink-0 space-y-2">
+      <div className="p-3 sm:p-4 bg-surface-elevated border-t border-border shrink-0 space-y-2">
         {messages.length > 0 ? (
           <div className="flex items-center justify-between gap-2">
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              className="h-7 text-xs gap-1 text-muted-foreground"
+              className="h-8 min-h-8 text-xs gap-1 text-muted-foreground"
               onClick={() => setSuggestionsPref(!showSuggestionGrid)}
             >
               <Lightbulb className="h-3.5 w-3.5" aria-hidden />
@@ -208,7 +211,7 @@ export function NairaSageChatPanel({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className={`h-7 text-xs gap-1 ${voice.ttsEnabled ? "text-primary" : "text-muted-foreground"}`}
+                className={`h-8 min-h-8 text-xs gap-1 ${voice.ttsEnabled ? "text-primary" : "text-muted-foreground"}`}
                 onClick={voice.onToggleTts}
                 aria-pressed={voice.ttsEnabled}
                 title={voice.ttsEnabled ? "Replies are read aloud — tap to mute" : "Read replies aloud"}
@@ -224,14 +227,14 @@ export function NairaSageChatPanel({
           </div>
         ) : null}
         {voice?.supported && voice.error ? (
-          <div className="flex items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <div className="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
             <span className="min-w-0">{voice.error}</span>
             {voice.clearError ? (
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-7 shrink-0 text-destructive"
+                className="h-8 shrink-0 text-destructive"
                 onClick={voice.clearError}
               >
                 Dismiss
@@ -242,7 +245,7 @@ export function NairaSageChatPanel({
         <form onSubmit={handleSubmit} className="flex gap-2 items-center">
           {attach ? (
             <label
-              className={`shrink-0 inline-flex items-center justify-center h-10 w-10 rounded-full border border-border cursor-pointer hover:bg-secondary/50 transition-colors ${
+              className={`shrink-0 inline-flex items-center justify-center h-11 w-11 rounded-md border border-border cursor-pointer hover:bg-muted/50 transition-colors focus-within:ring-2 focus-within:ring-ring ${
                 attach.busy || disabled || isTyping ? "opacity-50 pointer-events-none" : ""
               }`}
               aria-label="Scan a statement or receipt photo"
@@ -271,7 +274,7 @@ export function NairaSageChatPanel({
               type="button"
               variant={voice.listening ? "default" : "outline"}
               size="icon"
-              className={`relative h-11 w-11 shrink-0 rounded-full ${voice.listening ? "animate-pulse" : ""}`}
+              className={`relative h-11 w-11 shrink-0 rounded-md ${voice.listening ? "animate-pulse" : ""}`}
               onClick={voice.onToggleListen}
               disabled={disabled || isTyping}
               aria-pressed={voice.listening}
@@ -309,7 +312,7 @@ export function NairaSageChatPanel({
               placeholder="Ask anything about your money…"
               readOnly={voiceListening}
               disabled={disabled || isTyping}
-              className={`w-full rounded-full bg-secondary/50 border border-border pl-4 pr-12 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground placeholder:text-muted-foreground disabled:opacity-50 transition-all ${
+              className={`w-full rounded-md bg-background border border-border pl-3.5 pr-12 py-2.5 h-11 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring text-foreground placeholder:text-muted-foreground disabled:opacity-50 ${
                 voiceListening ? "italic text-muted-foreground" : ""
               }`}
             />
@@ -318,7 +321,7 @@ export function NairaSageChatPanel({
                 type="button"
                 size="icon"
                 onClick={onStop}
-                className="absolute right-1 top-1 bottom-1 h-auto rounded-full bg-destructive hover:bg-destructive/90 shadow-md"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 h-8 w-8 rounded-md bg-destructive hover:bg-destructive/90"
                 aria-label="Stop generating"
                 title="Stop generating"
               >
@@ -334,7 +337,7 @@ export function NairaSageChatPanel({
                   !fieldValue.trim() ||
                   voiceListening
                 }
-                className="absolute right-1 top-1 bottom-1 h-auto rounded-full bg-primary hover:bg-gold-600 shadow-md shadow-gold-500/20 disabled:bg-primary/50 disabled:shadow-none"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 h-8 w-8 rounded-md disabled:opacity-50"
               >
                 <Send className="w-4 h-4 text-primary-foreground" />
               </Button>

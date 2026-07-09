@@ -1,14 +1,52 @@
 import React from "react";
-import { Sparkles } from "lucide-react";
 
-export function BrandMark({ className }: { className?: string }) {
+function NairaGlyph({ className }: { className?: string }) {
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
-      <div className="bg-primary/10 p-2 rounded-xl border border-primary/20 relative shadow-lg shadow-gold-500/20">
-        <Sparkles className="w-5 h-5 text-primary" />
-        <div className="absolute inset-0 bg-primary/20 blur-md rounded-xl -z-10" />
+    <svg
+      viewBox="0 0 32 32"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden
+    >
+      {/* Geometric N with dual crossbars — naira-inspired */}
+      <path
+        d="M8 26V6h3.2l9.6 14.2V6H24v20h-3.2L11.2 11.8V26H8z"
+        fill="currentColor"
+      />
+      <path
+        d="M6 13.5h20M6 18.5h20"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        opacity="0.85"
+      />
+    </svg>
+  );
+}
+
+export function BrandMark({
+  className,
+  size = "default",
+}: {
+  className?: string;
+  size?: "default" | "lg" | "hero";
+}) {
+  const markSize =
+    size === "hero" ? "h-12 w-12" : size === "lg" ? "h-10 w-10" : "h-9 w-9";
+  const iconSize =
+    size === "hero" ? "w-7 h-7" : size === "lg" ? "w-5 h-5" : "w-4 h-4";
+  const textSize =
+    size === "hero" ? "text-3xl sm:text-4xl" : size === "lg" ? "text-2xl" : "text-xl";
+
+  return (
+    <div className={`flex items-center gap-2.5 ${className ?? ""}`}>
+      <div
+        className={`${markSize} flex items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-primary`}
+      >
+        <NairaGlyph className={iconSize} />
       </div>
-      <span className="font-bold text-xl tracking-tight text-foreground">
+      <span className={`font-display font-semibold tracking-tight text-foreground ${textSize}`}>
         Naira<span className="text-primary">Sage</span>
       </span>
     </div>

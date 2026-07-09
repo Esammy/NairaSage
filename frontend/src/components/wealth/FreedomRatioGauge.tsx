@@ -57,9 +57,9 @@ export function FreedomRatioGauge({
       >
         <defs>
           <linearGradient id="freedom-track" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#ef4444" />
-            <stop offset="50%" stopColor="#eab308" />
-            <stop offset="100%" stopColor="#22c55e" />
+            <stop offset="0%" stopColor="#8b3a3a" />
+            <stop offset="50%" stopColor="#b8a06a" />
+            <stop offset="100%" stopColor="#2d9f6f" />
           </linearGradient>
         </defs>
         <path
@@ -77,15 +77,17 @@ export function FreedomRatioGauge({
           strokeWidth={18}
           strokeLinecap="round"
         />
-        <line x1={cx} y1={cy} x2={nx} y2={ny} stroke="#f5f5f5" strokeWidth={3} strokeLinecap="round" />
-        <circle cx={cx} cy={cy} r={6} fill="#f5f5f5" />
-        <circle cx={exitX} cy={exitY} r={4} fill="#22c55e" />
-        <text x={exitX} y={exitY - 8} textAnchor="middle" fontSize={10} fill="#22c55e">
+        <line x1={cx} y1={cy} x2={nx} y2={ny} stroke="#f2f0eb" strokeWidth={3} strokeLinecap="round" />
+        <circle cx={cx} cy={cy} r={6} fill="#f2f0eb" />
+        <circle cx={exitX} cy={exitY} r={4} fill="#2d9f6f" />
+        <text x={exitX} y={exitY - 8} textAnchor="middle" fontSize={10} fill="#2d9f6f">
           1.0 exit
         </text>
       </svg>
       <div className="-mt-6 text-center">
-        <div className="text-4xl font-bold text-foreground">{clamped.toFixed(2)}</div>
+        <div className="font-display text-4xl font-semibold text-foreground tabular-money">
+          {clamped.toFixed(2)}
+        </div>
         <div className="text-xs uppercase tracking-wider text-muted-foreground mt-1">
           Freedom Ratio
         </div>

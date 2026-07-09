@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback } from "react";
-import { Bot, Copy, RefreshCw, Sparkles } from "lucide-react";
+import { Bot, Copy, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ChatMessage } from "@/hooks/useAgentStream";
 import { Markdown } from "@/components/ui/Markdown";
@@ -28,16 +28,16 @@ export const MessageBubble = React.memo(function MessageBubble({
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[90%] sm:max-w-[85%] rounded-2xl p-4 ${
+        className={`max-w-[90%] sm:max-w-[85%] rounded-xl px-4 py-3 ${
           isUser
-            ? "bg-primary text-primary-foreground rounded-tr-sm shadow-md"
-            : "glass-card border-border/30 rounded-tl-sm"
+            ? "bg-primary text-primary-foreground rounded-br-sm"
+            : "bg-card border border-border/70 rounded-bl-sm"
         }`}
       >
         {!isUser && (
-          <div className="flex items-center gap-2 mb-2 text-xs text-muted-foreground">
-            <Bot className="w-3.5 h-3.5" />
-            <span>NairaSage</span>
+          <div className="flex items-center gap-2 mb-2 text-[11px] text-muted-foreground">
+            <Bot className="w-3.5 h-3.5 text-primary" aria-hidden />
+            <span className="font-medium text-foreground/80">NairaSage</span>
           </div>
         )}
 
@@ -57,7 +57,11 @@ export const MessageBubble = React.memo(function MessageBubble({
           <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
         ) : (
           <>
-            {msg.content ? <Markdown>{msg.content}</Markdown> : null}
+            {msg.content ? (
+              <div className="text-sm leading-relaxed prose-headings:font-display">
+                <Markdown>{msg.content}</Markdown>
+              </div>
+            ) : null}
             {msg.isStreaming && msg.content ? (
               <span
                 className="inline-block w-1.5 h-3.5 bg-primary ml-1 animate-pulse"
@@ -68,13 +72,12 @@ export const MessageBubble = React.memo(function MessageBubble({
         )}
 
         {msg.topics && msg.topics.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-1 border-t border-border/30 pt-2">
+          <div className="mt-3 flex flex-wrap gap-1.5 border-t border-border/40 pt-2">
             {msg.topics.map((topic) => (
               <span
                 key={topic}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-background/50 text-foreground border border-border"
+                className="text-[10px] text-muted-foreground border-b border-border/60 pb-px"
               >
-                <Sparkles className="w-3 h-3 text-primary shrink-0" />
                 {topic}
               </span>
             ))}

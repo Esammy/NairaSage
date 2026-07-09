@@ -161,40 +161,46 @@ export function TopBar({
   };
 
   return (
-    <div className="flex h-16 shrink-0 items-center gap-x-4 border-b border-border bg-background/50 px-4 shadow-sm sm:gap-x-6 sm:px-6 lg:px-8 backdrop-blur-md sticky top-0 z-40">
-      <Button variant="ghost" size="icon" className="lg:hidden" onClick={onMobileMenuToggle}>
-        <Menu className="h-6 w-6" aria-hidden="true" />
+    <div className="flex h-14 shrink-0 items-center gap-x-3 border-b border-border bg-background/95 px-4 sm:gap-x-4 sm:px-6 lg:px-8 sticky top-0 z-40">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="lg:hidden h-10 w-10"
+        onClick={onMobileMenuToggle}
+        aria-label="Open menu"
+      >
+        <Menu className="h-5 w-5" aria-hidden="true" />
       </Button>
 
-      <div className="h-6 w-px bg-border lg:hidden" aria-hidden="true" />
+      <div className="h-5 w-px bg-border lg:hidden" aria-hidden="true" />
 
-      <div className="flex flex-1 gap-x-4 self-stretch lg:gap-x-6">
+      <div className="flex flex-1 gap-x-3 self-stretch lg:gap-x-4 items-center">
         {showQuickJump ? (
           <button
             type="button"
             onClick={openCommandPalette}
-            className="relative flex flex-1 items-center gap-2 rounded-lg border border-border bg-secondary/30 px-3 text-sm text-muted-foreground hover:border-primary/30 hover:text-foreground transition-colors max-w-xl"
+            className="relative flex flex-1 items-center gap-2 rounded-md border border-border bg-muted/30 px-3 h-9 text-sm text-muted-foreground hover:border-border hover:text-foreground transition-colors max-w-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Search className="h-4 w-4 shrink-0" aria-hidden />
-            <span className="truncate">Search or jump to…</span>
+            <span className="truncate">Jump to…</span>
             <kbd className="ml-auto hidden sm:inline-flex items-center gap-0.5 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
               Ctrl K
             </kbd>
           </button>
         ) : (
           <div className="flex flex-1 items-center text-sm text-muted-foreground">
-            <span className="sr-only">Search</span>
-            <span className="hidden sm:inline">Use the sidebar to navigate your dashboard.</span>
+            <span className="sr-only">Navigation</span>
           </div>
         )}
 
-        <div className="flex items-center gap-x-3 sm:gap-x-4">
+        <div className="flex items-center gap-x-2 sm:gap-x-3">
           <Button
             variant="default"
             onClick={onOpenChat}
-            className="bg-primary hover:bg-gold-600 text-primary-foreground shadow-lg shadow-gold-500/20 transition-all group"
+            className="h-9 min-w-9 rounded-md font-semibold px-3 sm:px-4"
+            aria-label={askButtonLabel ?? "Ask NairaSage"}
           >
-            <Bot className="mr-2 h-4 w-4 sm:group-hover:scale-110 transition-transform" />
+            <Bot className="sm:mr-2 h-4 w-4" aria-hidden />
             <span className="hidden sm:inline">{askButtonLabel ?? "Ask NairaSage"}</span>
           </Button>
 
@@ -280,12 +286,14 @@ export function TopBar({
               aria-haspopup="menu"
             >
               <span className="sr-only">Open user menu</span>
-              <Avatar className="h-8 w-8 ring-2 ring-primary/20">
+              <Avatar className="h-8 w-8 border border-border">
                 <AvatarImage src="" alt="" />
-                <AvatarFallback className="bg-primary/10 text-primary font-semibold">{ini}</AvatarFallback>
+                <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
+                  {ini}
+                </AvatarFallback>
               </Avatar>
               <span className="hidden lg:flex lg:items-center">
-                <span className="ml-4 text-sm font-semibold leading-6 text-foreground" aria-hidden="true">
+                <span className="ml-2.5 text-sm font-medium leading-6 text-foreground" aria-hidden="true">
                   {name}
                 </span>
               </span>

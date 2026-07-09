@@ -1,8 +1,18 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Fraunces, Source_Sans_3 } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
+const sourceSans = Source_Sans_3({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  display: "swap",
+});
+
+const fraunces = Fraunces({
+  subsets: ["latin"],
+  variable: "--font-display",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "NairaSage | AI-Powered Financial Co-Pilot",
@@ -16,7 +26,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en-NG" className="dark">
-      <body className={`${inter.variable} font-sans min-h-screen bg-background text-foreground`}>
+      <body
+        className={`${sourceSans.variable} ${fraunces.variable} font-sans min-h-screen bg-background text-foreground`}
+      >
         {children}
       </body>
     </html>

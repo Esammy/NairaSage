@@ -39,7 +39,7 @@ export function IdleSessionWarning({ open, onExtend, onSignOut }: Props) {
           <Button type="button" variant="outline" onClick={onSignOut}>
             Sign out now
           </Button>
-          <Button type="button" onClick={onExtend} className="bg-primary text-primary-foreground hover:bg-gold-600">
+          <Button type="button" onClick={onExtend} className="font-semibold">
             Stay signed in
           </Button>
         </div>

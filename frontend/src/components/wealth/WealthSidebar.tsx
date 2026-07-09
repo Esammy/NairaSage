@@ -37,7 +37,7 @@ const GROUPS: Array<{ id: NavGroupId; label: string; items: NavItem[] }> = [
     label: "Today",
     items: [
       { name: "Cockpit", href: "/wealth", icon: LayoutDashboard, blurb: "Freedom Ratio" },
-      { name: "Statement", href: "/wealth/statement", icon: Receipt, blurb: "Income / Expense / Asset / Liability" },
+      { name: "Statement", href: "/wealth/statement", icon: Receipt, blurb: "Income & expenses" },
       {
         name: "Next action",
         href: "/wealth/chat?prompt=What%20is%20my%20one%20next%20action%20to%20raise%20my%20investor%20level%3F",
@@ -108,21 +108,27 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
   return (
     <Link
       href={item.href}
-      className={`group flex items-start rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ${
+      className={`group relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
         active
-          ? "bg-primary/10 text-primary border-l-2 border-primary"
-          : "text-muted-foreground hover:bg-muted hover:text-foreground border-l-2 border-transparent"
+          ? "bg-primary/8 text-foreground font-medium"
+          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground font-normal"
       }`}
     >
+      {active ? (
+        <span
+          className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-full bg-primary"
+          aria-hidden
+        />
+      ) : null}
       <item.icon
-        className={`mr-3 mt-0.5 h-5 w-5 flex-shrink-0 ${
-          active ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
-        }`}
-        aria-hidden="true"
+        className={`h-4 w-4 shrink-0 ${active ? "text-primary" : "text-muted-foreground group-hover:text-foreground"}`}
+        aria-hidden
       />
-      <span className="flex flex-col">
+      <span className="flex flex-col min-w-0">
         <span>{item.name}</span>
-        <span className="text-[10px] text-muted-foreground group-hover:text-foreground/80">{item.blurb}</span>
+        <span className="text-[11px] text-muted-foreground/80 truncate hidden sm:block group-hover:text-muted-foreground">
+          {item.blurb}
+        </span>
       </span>
     </Link>
   );
@@ -134,7 +140,6 @@ export function WealthSidebar() {
   const [citationOpen, setCitationOpen] = useState(false);
 
   useEffect(() => {
-    // Deferred: localStorage is read post-hydration without a sync re-render.
     void Promise.resolve().then(() => setExpanded(loadGroupState()));
   }, []);
 
@@ -151,23 +156,25 @@ export function WealthSidebar() {
   }, []);
 
   return (
-    <div className="flex h-full w-64 flex-col border-r border-border bg-sidebar glass-panel">
-      <div className="flex h-16 shrink-0 items-center px-6">
-        <Link href="/">
+    <div className="flex h-full w-64 flex-col border-r border-border bg-sidebar">
+      <div className="flex h-16 shrink-0 items-center px-5 border-b border-border/60">
+        <Link href="/" className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md">
           <BrandMark />
         </Link>
       </div>
-      <div className="px-4 pb-2 -mt-2">
-        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">NairaSage Wealth Cockpit</div>
+      <div className="px-5 pt-3 pb-1">
+        <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground font-medium">
+          Wealth OS
+        </p>
       </div>
-      <div className="flex flex-1 flex-col overflow-y-auto px-4 py-4">
-        <nav className="flex-1 space-y-3" aria-label="Wealth navigation">
+      <div className="flex flex-1 flex-col overflow-y-auto px-3 py-2">
+        <nav className="flex-1 space-y-4" aria-label="Wealth navigation">
           {GROUPS.map((group) => (
             <div key={group.id}>
               <button
                 type="button"
                 onClick={() => toggleGroup(group.id)}
-                className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-expanded={expanded[group.id]}
               >
                 {group.label}
@@ -177,7 +184,7 @@ export function WealthSidebar() {
                 />
               </button>
               {expanded[group.id] ? (
-                <ul className="mt-1 space-y-0.5">
+                <ul className="mt-0.5 space-y-0.5">
                   {group.items.map((item) => (
                     <li key={item.name}>
                       <NavLink item={item} pathname={pathname} />
@@ -189,25 +196,27 @@ export function WealthSidebar() {
           ))}
         </nav>
 
-        <div className="mt-6 border-t border-border/50 pt-4">
+        <div className="mt-4 border-t border-border/60 pt-3">
           <Link
             href="/dashboard/settings"
-            className="group flex items-center rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-all duration-200"
+            className="group flex items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <Settings className="mr-3 h-5 w-5 flex-shrink-0 opacity-60" aria-hidden />
+            <Settings className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
             Account &amp; Settings
           </Link>
         </div>
 
         <details
-          className="mt-4 rounded-md border border-border/50 bg-muted/20"
+          className="mt-3 rounded-md border border-border/50 bg-muted/15"
           open={citationOpen}
           onToggle={(e) => setCitationOpen((e.target as HTMLDetailsElement).open)}
         >
-          <summary className="cursor-pointer px-2 py-2 text-[10px] font-medium text-muted-foreground hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-md">
+          <summary className="cursor-pointer px-2.5 py-2 text-[10px] font-medium text-muted-foreground hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md">
             Why we cite sources
           </summary>
-          <p className="px-2 pb-2 text-[9px] leading-snug text-muted-foreground/90">{CITATION_DISCLOSURE}</p>
+          <p className="px-2.5 pb-2.5 text-[10px] leading-relaxed text-muted-foreground/90">
+            {CITATION_DISCLOSURE}
+          </p>
         </details>
       </div>
     </div>

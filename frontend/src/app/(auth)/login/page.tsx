@@ -14,7 +14,7 @@ function IdleTimeoutNotice() {
   return (
     <div
       role="status"
-      className="mb-6 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-100"
+      className="mb-6 rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-foreground"
     >
       You were signed out after 30 minutes with no activity. Sign in again to continue.
     </div>
@@ -57,57 +57,63 @@ function LoginForm() {
   };
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div>
       <IdleTimeoutNotice />
-      <h2 className="text-3xl font-bold tracking-tight text-foreground">Sign in to your account</h2>
+      <h2 className="font-display text-2xl sm:text-3xl font-semibold tracking-tight text-foreground">
+        Sign in
+      </h2>
       <p className="mt-2 text-sm text-muted-foreground">
         Don&apos;t have an account?{" "}
-        <Link href="/register" className="font-medium text-primary hover:text-gold-600 transition-colors">
-          Start your journey
+        <Link href="/register" className="font-medium text-primary hover:underline">
+          Create one
         </Link>
       </p>
 
-      <div className="mt-10">
-        <form onSubmit={handleSubmit} className="space-y-6">
+      <div className="mt-8">
+        <form onSubmit={handleSubmit} className="space-y-5">
           {error && (
-            <div className="p-3 text-sm text-destructive-foreground bg-destructive/90 rounded-md border border-destructive">
+            <div
+              role="alert"
+              className="p-3 text-sm text-destructive-foreground bg-destructive/90 rounded-md border border-destructive"
+            >
               {error}
             </div>
           )}
           <div>
-            <label htmlFor="email" className="block text-sm font-medium leading-6 text-foreground">
+            <label htmlFor="email" className="block text-sm font-medium text-foreground">
               Email address
             </label>
-            <div className="mt-2">
+            <div className="mt-1.5">
               <Input
                 id="email"
                 name="email"
                 type="email"
                 autoComplete="email"
                 required
-                className="bg-secondary/50 border-border focus-visible:ring-primary h-12"
+                className="bg-muted/40 border-border focus-visible:ring-ring h-11 rounded-md"
               />
             </div>
           </div>
 
           <div>
             <div className="flex items-center justify-between">
-              <label htmlFor="password" className="block text-sm font-medium leading-6 text-foreground">
+              <label htmlFor="password" className="block text-sm font-medium text-foreground">
                 Password
               </label>
-              <div className="text-sm">
-                <Link href="/forgot-password" className="font-semibold text-primary hover:text-gold-600">
-                  Forgot password?
-                </Link>
-              </div>
+              <Link
+                href="/forgot-password"
+                className="text-sm font-medium text-primary hover:underline"
+              >
+                Forgot password?
+              </Link>
             </div>
-            <div className="mt-2">
+            <div className="mt-1.5">
               <PasswordInput
                 id="password"
                 name="password"
                 autoComplete="current-password"
                 required
-                className="bg-secondary/50 border-border focus-visible:ring-primary h-12"
+                className="bg-muted/40 border-border focus-visible:ring-ring h-11 rounded-md"
               />
             </div>
           </div>
@@ -116,7 +122,7 @@ function LoginForm() {
             <Button
               type="submit"
               disabled={loading}
-              className="w-full h-12 bg-primary text-primary-foreground hover:bg-gold-600 shadow-md shadow-gold-500/20 text-md"
+              className="w-full h-11 rounded-md font-semibold"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Sign in"}
             </Button>

@@ -61,8 +61,8 @@ export default function WealthLayout({
           showQuickJump
         />
 
-        <main className="flex-1 overflow-y-auto bg-background/50 p-4 sm:p-6 lg:p-8">
-          <div className="mx-auto max-w-7xl">{children}</div>
+        <main className="flex-1 overflow-y-auto bg-background p-4 sm:p-5 lg:p-6">
+          <div className="mx-auto max-w-6xl">{children}</div>
         </main>
       </div>
 
