@@ -1,5 +1,6 @@
 """Shared Django settings for NairaSage."""
 
+import sys
 from datetime import timedelta
 from pathlib import Path
 
@@ -175,6 +176,9 @@ CACHES = {
         "TIMEOUT": 300,
     }
 }
+# `manage.py test` shouldn't need a running Redis (throttles/axes use the cache).
+if "test" in sys.argv[1:2]:
+    CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
 
 RQ_QUEUES = {
     "high": {"USE_REDIS_CACHE": "default"},
@@ -262,3 +266,12 @@ STORAGES = {
 
 AXES_FAILURE_LIMIT = 5
 AXES_COOLOFF_TIME = timedelta(hours=1)
+# Behind a reverse proxy every request shares the proxy's IP, so one attacker could
+# lock everyone out. Read the real client IP from X-Forwarded-For (set proxy count to
+# the number of trusted proxies in front of the app; 0 disables).
+AXES_IPWARE_PROXY_COUNT = env.int("AXES_IPWARE_PROXY_COUNT", default=0)
+if AXES_IPWARE_PROXY_COUNT:
+    AXES_IPWARE_META_PRECEDENCE_ORDER = ("HTTP_X_FORWARDED_FOR", "REMOTE_ADDR")
+
+# Move the Django admin off the guessable default path in production (e.g. ADMIN_URL=ops-9f3k/).
+ADMIN_URL = env("ADMIN_URL", default="admin/").strip("/") + "/"
