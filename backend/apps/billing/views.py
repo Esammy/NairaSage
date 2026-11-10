@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.utils import timezone
@@ -97,8 +97,6 @@ def _sync_user_subscription(user: User, etype: str, data: dict) -> None:
 
     if etype in active_events:
         if sub_code or plan_code or sub_status == "active":
-            sub.status = "active"
-        elif etype == "charge.success" and data.get("status") == "success":
             sub.status = "active"
     elif etype in inactive_events:
         sub.status = "canceled"
@@ -218,7 +216,10 @@ class PaystackWebhookView(APIView):
         amount = data.get("amount")
         amount_ngn = None
         if amount is not None:
-            amount_ngn = Decimal(str(amount)) / Decimal("100")
+            try:
+                amount_ngn = Decimal(str(amount)) / Decimal("100")
+            except InvalidOperation:
+                amount_ngn = None
 
         user = None
         if email:
@@ -231,11 +232,17 @@ class PaystackWebhookView(APIView):
                 user = None
 
         if user:
+            reference = str(data.get("reference") or "")
+            if reference and BillingEvent.objects.filter(
+                user=user, event_type=etype or "unknown", paystack_reference=reference
+            ).exists():
+                # Paystack retries / replays: already processed.
+                return Response({"ok": True, "duplicate": True})
             BillingEvent.objects.create(
                 user=user,
                 event_type=etype or "unknown",
                 amount_ngn=amount_ngn,
-                paystack_reference=data.get("reference", ""),
+                paystack_reference=reference,
                 raw_payload=event,
             )
             try:

@@ -24,6 +24,18 @@ from apps.users.serializers import (
 from core.permissions import IsEmailVerified
 
 
+MAX_MESSAGE_CHARS = 4000
+
+
+def _message_too_long(message: str):
+    if len(message) > MAX_MESSAGE_CHARS:
+        return Response(
+            {"error": f"message must be at most {MAX_MESSAGE_CHARS} characters"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return None
+
+
 class _AgentBaseMixin:
     permission_classes = [permissions.IsAuthenticated, IsEmailVerified]
 
@@ -58,6 +70,9 @@ class CoordinatorChatView(_AgentBaseMixin, APIView):
                 {"error": "message is required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        too_long = _message_too_long(message)
+        if too_long:
+            return too_long
         session_id = _parse_session_id(request)
         if isinstance(session_id, Response):
             return session_id
@@ -84,6 +99,9 @@ class CoordinatorChatStreamView(_AgentBaseMixin, APIView):
                 {"error": "message is required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        too_long = _message_too_long(message)
+        if too_long:
+            return too_long
         session_id = _parse_session_id(request)
         if isinstance(session_id, Response):
             return session_id
@@ -155,6 +173,9 @@ class AgentDirectView(_AgentBaseMixin, APIView):
 
     def post(self, request, agent: str):
         message = (request.data.get("message") or "").strip()
+        too_long = _message_too_long(message)
+        if too_long:
+            return too_long
         path = AGENT_REGISTRY.get(agent)
         if not path:
             return Response(
@@ -189,6 +210,10 @@ class FeedbackView(_AgentBaseMixin, APIView):
 
 class AgentHistoryView(_AgentBaseMixin, APIView):
     def get(self, request, agent: str):
+        if agent not in AGENT_REGISTRY:
+            return Response(
+                {"error": f"Unknown agent: {agent}"}, status=status.HTTP_404_NOT_FOUND
+            )
         dna, _ = FinancialDNA.objects.get_or_create(user=request.user)
         memory = dna.agent_memory.get(agent, {})
         return Response({"agent": agent, "memory": memory})
@@ -196,11 +221,15 @@ class AgentHistoryView(_AgentBaseMixin, APIView):
 
 class ClearHistoryView(_AgentBaseMixin, APIView):
     def delete(self, request, agent: str):
+        if agent not in AGENT_REGISTRY:
+            return Response(
+                {"error": f"Unknown agent: {agent}"}, status=status.HTTP_404_NOT_FOUND
+            )
         dna, _ = FinancialDNA.objects.get_or_create(user=request.user)
         block = dict(dna.agent_memory)
         block.pop(agent, None)
         dna.agent_memory = block
-        dna.save()
+        dna.save(update_fields=["agent_memory", "updated_at"])
         return Response({"status": "cleared"})
 
 
@@ -217,6 +246,9 @@ class ScenarioView(_AgentBaseMixin, APIView):
                 {"error": "scenario or message required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        too_long = _message_too_long(scenario)
+        if too_long:
+            return too_long
         agent = LifePlannerAgent(user_id=request.user.id)
         result = agent.run({"query": f"Scenario war-game: {scenario}"})
         return Response(result)
