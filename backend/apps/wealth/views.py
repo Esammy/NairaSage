@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import time
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 import requests
 from django.conf import settings
@@ -15,6 +16,8 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+logger = logging.getLogger(__name__)
 
 from apps.wealth.actions import (
     cancel_proposal,
@@ -156,14 +159,25 @@ class FinancialStatementSnapshotViewSet(viewsets.ModelViewSet):
         """Recompute the current month's snapshot from user-supplied income / expense numbers."""
         payload = request.data or {}
         today = dt.date.today().replace(day=1)
-        inputs = SnapshotInputs(
-            period_month=today,
-            income_active=Decimal(str(payload.get("income_active", 0))),
-            income_passive=Decimal(str(payload.get("income_passive", 0))),
-            income_portfolio=Decimal(str(payload.get("income_portfolio", 0))),
-            expenses_essential=Decimal(str(payload.get("expenses_essential", 0))),
-            expenses_doodad=Decimal(str(payload.get("expenses_doodad", 0))),
-        )
+        values = {}
+        for key in (
+            "income_active",
+            "income_passive",
+            "income_portfolio",
+            "expenses_essential",
+            "expenses_doodad",
+        ):
+            try:
+                val = Decimal(str(payload.get(key, 0) or 0))
+            except InvalidOperation:
+                val = None
+            if val is None or not val.is_finite() or val < 0 or val > Decimal("1e12"):
+                return Response(
+                    {"detail": f"{key} must be a non-negative number."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            values[key] = val
+        inputs = SnapshotInputs(period_month=today, **values)
         snap = compose_snapshot(request.user, inputs)
         # Re-assess level now that the statement is current.
         lvl_obj, _ = InvestorLevel.objects.get_or_create(user=request.user)
@@ -332,13 +346,27 @@ class RichDadOnboardingView(APIView):
     def post(self, request):
         payload = request.data or {}
         try:
+            phase_anchor = int(payload.get("phase_anchor", 1))
+            initial_level = int(payload.get("initial_level", 0))
+            split = payload.get("quadrant_split") or {}
+            if not isinstance(split, dict):
+                raise ValueError("quadrant_split must be an object")
+            if not 1 <= phase_anchor <= 5 or not 0 <= initial_level <= 6:
+                raise ValueError("phase_anchor/initial_level out of range")
+            split = {
+                str(k): float(v)
+                for k, v in split.items()
+                if str(k) in {"E", "S", "B", "I", "target_B", "target_I"}
+            }
+            if any(not 0.0 <= v <= 100.0 for v in split.values()):
+                raise ValueError("quadrant_split values must be between 0 and 100")
             seed_rich_dad_onboarding(
                 user=request.user,
                 primary_motivation=str(payload.get("primary_motivation", "")),
                 quadrant_anchor=str(payload.get("quadrant_anchor", ""))[:1].upper(),
-                phase_anchor=int(payload.get("phase_anchor", 1)),
-                quadrant_split=payload.get("quadrant_split") or {},
-                initial_level=int(payload.get("initial_level", 0)),
+                phase_anchor=phase_anchor,
+                quadrant_split=split,
+                initial_level=initial_level,
             )
         except (ValueError, TypeError) as exc:
             return Response(
@@ -429,9 +457,10 @@ class ActionProposalConfirmView(APIView):
             )
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
+            logger.exception("action proposal confirm failed proposal=%s", pk)
             return Response(
-                {"detail": str(e)[:2000]},
+                {"detail": "Could not apply this action. Please try again."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return Response(
@@ -493,22 +522,21 @@ class AssemblyAIVoiceTokenView(APIView):
                 headers={"Authorization": settings.ASSEMBLYAI_API_KEY},
                 timeout=15,
             )
-        except requests.RequestException as exc:
+        except requests.RequestException:
+            logger.exception("assemblyai token request failed")
             return Response(
-                {"detail": f"Could not reach AssemblyAI: {exc!s}"[:250]},
+                {"detail": "Could not reach the transcription service."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
         if resp.status_code != 200:
-            detail = resp.text[:500]
-            ct = resp.headers.get("content-type", "")
-            if "application/json" in ct:
-                try:
-                    body = resp.json()
-                    detail = str(body.get("error", body))[:500]
-                except (ValueError, TypeError):
-                    detail = resp.text[:500]
-            return Response({"detail": detail}, status=status.HTTP_502_BAD_GATEWAY)
+            logger.warning(
+                "assemblyai token error status=%s body=%s", resp.status_code, resp.text[:500]
+            )
+            return Response(
+                {"detail": "Transcription service error."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
         data = resp.json()
         token = data.get("token")
