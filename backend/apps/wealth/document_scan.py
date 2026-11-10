@@ -14,10 +14,12 @@ from __future__ import annotations
 
 import base64
 import binascii
+import io
 import json
 import logging
 import uuid
 
+from PIL import Image
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -100,6 +102,18 @@ class DocumentScanView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        try:
+            with Image.open(io.BytesIO(raw)) as img:
+                img.verify()
+                detected = Image.MIME.get(img.format or "")
+        except Exception:  # noqa: BLE001
+            detected = None
+        if detected != mime:
+            return Response(
+                {"error": "File content does not match the declared image type"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         ext = mime.split("/")[-1].replace("jpeg", "jpg")
         stored_path = default_storage.save(
             f"scans/user_{request.user.id}/{uuid.uuid4().hex}.{ext}",
@@ -124,6 +138,10 @@ class DocumentScanView(APIView):
             parsed = json.loads(extract_json_object(raw_reply))
         except Exception as e:  # noqa: BLE001
             logger.exception("Document scan vision call failed: %s", e)
+            try:
+                default_storage.delete(stored_path)
+            except Exception:  # noqa: BLE001
+                logger.warning("Could not delete orphaned scan %s", stored_path)
             return Response(
                 {"error": "Could not analyze the document. Please try a clearer photo."},
                 status=status.HTTP_502_BAD_GATEWAY,

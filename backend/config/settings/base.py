@@ -213,6 +213,7 @@ REST_FRAMEWORK = {
         "auth": "60/minute",
         "agent": "120/hour",
         "password_reset": "10/hour",
+        "register": "20/hour",
     },
 }
 
@@ -259,6 +260,9 @@ STORAGES = {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },
 }
+
+# Document scans arrive as base64 JSON (8MB image ~ 11MB body).
+DATA_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024
 
 AXES_FAILURE_LIMIT = 5
 AXES_COOLOFF_TIME = timedelta(hours=1)

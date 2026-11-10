@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle, AnonRateThrottle]
+    throttle_scope = "register"
     serializer_class = RegisterSerializer
 
 
@@ -102,6 +104,17 @@ class PasswordResetConfirmView(APIView):
             )
         user.set_password(password)
         user.save(update_fields=["password"])
+        # Revoke existing sessions so a stolen refresh token dies with the old password.
+        try:
+            from rest_framework_simplejwt.token_blacklist.models import (
+                BlacklistedToken,
+                OutstandingToken,
+            )
+
+            for ot in OutstandingToken.objects.filter(user=user):
+                BlacklistedToken.objects.get_or_create(token=ot)
+        except Exception:
+            logger.exception("password_reset_token_revoke_failed user_id=%s", user.pk)
         return Response({"detail": "Password has been reset. You can sign in."})
 
 
