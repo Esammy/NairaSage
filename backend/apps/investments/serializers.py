@@ -7,7 +7,7 @@ class PortfolioHoldingSerializer(serializers.ModelSerializer):
     class Meta:
         model = PortfolioHolding
         fields = "__all__"
-        read_only_fields = ("created_at", "updated_at")
+        read_only_fields = ("portfolio", "created_at", "updated_at")
 
 
 class PortfolioSerializer(serializers.ModelSerializer):
